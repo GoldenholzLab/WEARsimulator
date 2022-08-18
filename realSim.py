@@ -1,5 +1,6 @@
 import numpy as np
 
+np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)  
 
 def simulator_base(sampRATE,number_of_days,cyclesTF=True,clustersTF=True, maxlimits=True, defaultSeizureFreq = -1,
     Lparams=[1.5475,17.645,10.617,5.9917,-0.3085,1.5371],CP=[],returnDetails=False,clusterParams=[.5, 1, 7, 1, 1],

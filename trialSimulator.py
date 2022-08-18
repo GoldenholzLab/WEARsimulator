@@ -121,8 +121,10 @@ def calculate_fisher_exact_p_value(placebo_arm_percent_changes,
     num_drug_arm_non_responders    = len(drug_arm_percent_changes)    - num_drug_arm_responders
 
     table = np.array([[num_placebo_arm_responders, num_placebo_arm_non_responders], [num_drug_arm_responders, num_drug_arm_non_responders]])
-
-    [_, RR50_p_value] = stats.fisher_exact(table)
+    if np.all(table>5):
+        [_,RR50_p_value,_,_] = stats.chi2_contigency(table)
+    else:
+        [_, RR50_p_value] = stats.fisher_exact(table)
 
     return RR50_p_value
 
