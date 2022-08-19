@@ -22,13 +22,16 @@ def add_FAR(x,FAR):
     #   newx - the diary with extra alarms in there
 
     # we assume FAR is in terms of SAMPLES    
-    sampRATE=1
-
-    randNums = np.random.randn(len(x))
-    added_sz = FAR*sampRATE + (FAR*sampRATE/2)*randNums
-    added_sz = np.round(np.random.randn(len(x))+FAR).astype('int')
-    
-    return x + added_sz
+    if FAR==0:
+        return x
+    else:
+        sampRATE=1
+        
+        randNums = np.random.randn(len(x))
+        added_sz = FAR*sampRATE + (FAR*sampRATE/2)*randNums
+        added_sz = np.round(np.random.randn(len(x))+FAR).astype('int')
+        
+        return x + added_sz
 
 def make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=1):
     # INPUTS:
@@ -134,7 +137,7 @@ def make_one_pt_months(trialDur):
     sampRATE = 1
     howmanydays = 28*trialDur
     ediaryM,trueclinM = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=28)
-
+    
     return np.concatenate([ediaryM,trueclinM])
 
 def getPC_months(trialData,baseline,test):

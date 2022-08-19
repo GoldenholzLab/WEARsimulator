@@ -14,7 +14,7 @@ def MPC(PC):
 def getPC(trialData,baseline,test):
     B = np.sum(trialData[:,:baseline],axis=1) / (baseline/28)
     T = np.sum(trialData[:,baseline:],axis=1) / (test/28)
-    PC = 100*(B-T)/B
+    PC = 100*np.divide(B-T,B)
     return PC
 
 def runSet(howMany,Lparams,minSz=8,N=200,DRG=.3,PCB=0,baseline=56,test=84,CPUs=9):
@@ -122,7 +122,7 @@ def calculate_fisher_exact_p_value(placebo_arm_percent_changes,
 
     table = np.array([[num_placebo_arm_responders, num_placebo_arm_non_responders], [num_drug_arm_responders, num_drug_arm_non_responders]])
     if np.all(table>5):
-        [_,RR50_p_value,_,_] = stats.chi2_contigency(table)
+        [_,RR50_p_value,_,_] = stats.chi2_contingency(table)
     else:
         [_, RR50_p_value] = stats.fisher_exact(table)
 

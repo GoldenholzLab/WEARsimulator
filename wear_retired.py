@@ -374,3 +374,97 @@ def calculate_fisher_exact_p_value_from_responderTF(placebo_arm_responderTF,
     [_, RR50_p_value] = stats.fisher_exact(table)
 
     return RR50_p_value
+
+
+
+
+def tryManyTrials(numCPUs,N,REPS,sensLIST,farLIST):
+    PCB = 0
+    DRG = 0.2
+    baseline = 2
+    test = 3
+    halfN = int(N/2)
+    
+    obsPows = prepare_obs(numCPUs,N,REPS,PCB,DRG,baseline,test,halfN)
+    print('doinbg the grid')
+    allPows = prepare_sensfar(numCPUs,N,REPS,PCB,DRG,baseline,test,halfN,sensLIST,farLIST)
+    print('done')    
+    return obsPows,allPows
+
+def prepare_sensfar(numCPUs,N,REPS,PCB,DRG,baseline,test,halfN,sensLIST,farLIST):
+    MandR = np.zeros((len(sensLIST),len(farLIST),REPS,4))
+    for Si,S in enumerate(sensLIST):
+        for Fi,F in enumerate(farLIST):
+            with Parallel(n_jobs=numCPUs, verbose=False) as par:
+                temp = par(delayed(prepare_sensfar_sub)(N,PCB,DRG,baseline,test,halfN,S,F) for _ in trange(REPS,desc='reps'))
+            MandR[Si,Fi,:,:] = np.array(temp,dtype=int)
+    allPows = np.mean(MandR,axis=2)
+    return allPows
+
+def prepare_obs(numCPUs,N,REPS,PCB,DRG,baseline,test,halfN):
+    with Parallel(n_jobs=numCPUs, verbose=False) as par:
+        temp = par(delayed(prepare_obs_sub)(N,PCB,DRG,baseline,test,halfN) for _ in trange(REPS,desc='obs'))
+    MandR = np.array(temp,dtype=int)
+    obsPows = np.mean(MandR,axis=0)
+    return obsPows
+
+def prepare_obs_sub(N,PCB,DRG,baseline,test,halfN):
+    obs_sens = 0.5
+    obs_FAR = 0
+    temp = make_some_pts(sensitivity=obs_sens,FAR=obs_FAR,Ne=0,Nc = N,PCB=PCB,DRG=DRG,baseline=baseline,test=test)
+    obs = getPC(temp[1,:,:],baseline,test)
+    pMPCo = calculate_MPC_p_value(obs[:halfN],obs[halfN:]) < 0.05
+    pRRo = calculate_fisher_exact_p_value(obs[:halfN],obs[halfN:]) < 0.05
+    return np.array([pMPCo,pRRo]).astype('int')
+
+def prepare_sensfar_sub(N,PCB,DRG,baseline,test,halfN,S,F):
+    temp = make_some_pts(sensitivity=S,FAR=F,Ne=N,Nc = N,PCB=PCB,DRG=DRG,baseline=baseline,test=test)
+    PCe = getPC(temp[0,:,:],baseline,test)
+    PCc = getPC(temp[0,:,:],baseline,test)
+    
+    pMPCe = calculate_MPC_p_value(PCe[:halfN],PCe[halfN:]) < 0.05
+    pMPCc = calculate_MPC_p_value(PCc[:halfN],PCc[halfN:]) < 0.05
+    pRRe = calculate_fisher_exact_p_value(PCe[:halfN],PCe[halfN:]) < 0.05
+    pRRc = calculate_fisher_exact_p_value(PCc[:halfN],PCc[halfN:]) < 0.05
+    bigX = np.array([pMPCe,pRRe,pMPCc,pRRc])
+    return bigX.astype('int')
+    
+    
+def make_some_pts(sensitivity,FAR,Ne,Nc,PCB,DRG,baseline,test):
+    sampRATE = 28
+    minSz = 4
+    trialDur = baseline + test
+    manyPts = np.zeros((2,np.max([Ne,Nc]),trialDur))
+    counters = np.array([0,0])
+    while (counters[0]<Ne or counters[1]<Nc):
+        X = make_one_multi(trialDur)
+        Xs = applyDrug(efficacy=sensitivity,x=X,baseline=0)
+        thisFAR = np.max([0,FAR + FAR*np.random.randn()])
+        Xsf = Xs + sampRATE*thisFAR
+        e = Xsf[:trialDur]
+        c = Xsf[trialDur:]
+        eT = isQualified(e,minSz,baseline)
+        cT = isQualified(c,minSz,baseline) 
+        if eT and counters[0]<Ne:
+            temp = applyDrug(efficacy=PCB,x=e,baseline=baseline)
+            if counters[0]>=(Ne/2):
+                temp = applyDrug(efficacy=DRG,x=temp,baseline=baseline)
+            manyPts[0,counters[0],:] = temp
+            counters[0] += 1
+        if cT and counters[1]<Nc:
+            temp = applyDrug(efficacy=PCB,x=c,baseline=baseline)
+            if counters[0]>=(Nc/2):
+                temp = applyDrug(efficacy=DRG,x=temp,baseline=baseline)
+            manyPts[1,counters[1],:] = temp
+            counters[1] += 1
+
+    return manyPts
+    
+def make_one_multi(trialDur):
+    howmanydays = 28*trialDur
+    trialSet = np.zeros((2,trialDur))
+    e,c = make_multi_diaries(sampRATE=1,howmanydays=howmanydays,makeOBS=False,downsample_rate=28)
+    return np.concatenate([e,c])
+        
+def isQualified(x,minSz,baseline):
+    return np.mean(x[:baseline]) >= minSz
