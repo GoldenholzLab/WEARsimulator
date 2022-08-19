@@ -29,10 +29,16 @@ def get_a_patient(trialDur,clinTF,sensitivity,FAR):
     else:
         X = e.copy()
     # add sensitivity
-    Xs = applyDrug(efficacy=(1-sensitivity),x=X,baseline=0)
+    if sensitivity<1:
+        Xs = applyDrug(efficacy=(1-sensitivity),x=X,baseline=0)
+    else:
+        Xs = X.copy()
     # add FAR
-    thisFAR = np.max([0,FAR + FAR*np.random.randn()])
-    Xsf = Xs + downsampleRATE*thisFAR
+    if FAR>0:
+        thisFAR = np.max([0,FAR + FAR*np.random.randn()])
+        Xsf = Xs + downsampleRATE*thisFAR
+    else:
+        Xsf = Xs.copy()
     
     return Xsf
     
@@ -70,7 +76,15 @@ def didWeWin(PC,metricMPC_TF,halfN):
         
     return successTF + 0
 
-def findThresh(numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,metricMPC_TF):
+def findThresh(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,metricMPC_TF):
+    
+    allPCs = buildPCsets(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR)
+    threshRR50 = checkThresh(allPCs,numCPUs,REPS,maxN,metricMPC_TF=False)
+    threshMPC = checkThresh(allPCs,numCPUs,REPS,maxN,metricMPC_TF=True)
+    
+    return threshRR50,threshMPC
+
+def buildPCsets(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR):
     N=maxN
     halfN=int(maxN/2)
     T1 = time.time()
@@ -78,16 +92,24 @@ def findThresh(numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,
     with Parallel(n_jobs=numCPUs, verbose=False) as par:
         temp = par(delayed(build_a_trial)(N,halfN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR) for _ in trange(REPS,desc='trials'))
     allPCs = np.array(temp,dtype=float)
-    print(f'Calculating PCs = {time.time()-T1}')
     
-    thisN = maxN
+    delT = np.round((time.time()-T1)/60)
+    print(f'Calculating wins = {delT} minutes')
+
+    print('Saving...',end='')
+    np.save(fn,allPCs)
+    print('.')
+    return allPCs
+
+def checkThresh(allPCs,numCPUs,REPS,maxN,metricMPC_TF):
     T1 = time.time()
-    for thisN in trange(100,maxN,100,desc='findthresh'):
+    for thisN in trange(100,maxN,10,desc='findthresh'):
         halfN = int(thisN/2)
         wins = [ didWeWin(allPCs[iter,0:thisN],metricMPC_TF,halfN) for iter in range(REPS) ]
         thePow = np.mean(wins)
         if thePow>0.9:
             print('Thresh N = thisN')
             break
-    print(f'Calculating wins = {time.time()-T1}')
+    delT = np.round((time.time()-T1)/60)
+    print(f'Calculating wins = {delT} minutes')
     return thisN
