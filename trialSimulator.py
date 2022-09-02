@@ -85,7 +85,7 @@ def applyDrug(efficacy,x,baseline):
     deleter = np.random.random(int(allS))<efficacy
     x2 = x.copy()
     counter=0
-    for iter in range(baseline,len(x)):
+    for iter in range(baseline,L):
         for sCount in range(int(x[iter])):
             x2[iter] -= deleter[counter]
             counter += 1
