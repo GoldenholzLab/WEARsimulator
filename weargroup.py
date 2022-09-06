@@ -393,6 +393,11 @@ def do_a_clin_set(sensLIST,FARlist,csvFN,doPremake=True,filePREFIX='Patients'):
 # RATE of OVERDRUGGING
 # RATE of UNDERDRUGGING
 # have some epsilon, like 10% in either direction
+
+
+
+
+
 def simulate_clinic(sensLIST,FARlist,N=10000,yrs=10,numCPUs=9):
     clinic_interval = 30*3     # 3 months between clinic visits
     yrs = 10
