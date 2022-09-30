@@ -4,6 +4,7 @@ pix/
 *.npy
 *.csv
 *.png
+toony.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

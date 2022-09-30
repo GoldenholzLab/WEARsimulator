@@ -4,7 +4,8 @@ from trialSimulator import getPC
 from trialSimulator import calculate_fisher_exact_p_value, calculate_MPC_p_value
 from weargroup import make_multi_diaries
 from joblib import Parallel, delayed
-from tqdm.notebook import trange, tqdm
+#from tqdm.notebook import trange, tqdm
+from tqdm import trange, tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
@@ -32,7 +33,7 @@ def applyDrug(efficacy,x,baseline):
         # using efficacy as the probability of deleting
         x2 = [  applyDrugOneSample(x[iter],efficacy) for iter in range(baseline,L) ]    
         
-        return x2
+        return np.array(x2).astype('int')
     else:
         # DO NOITHING for efficacy = 0
         return x
@@ -79,6 +80,23 @@ def add_sens_and_FAR(sensitivity,FAR,X,downsampleRATE,inflater=2/3):
                 Xadder[i] = 0
         Xs += Xadder
     return Xs
+
+
+def add_sens_and_FAR_onesamp(sensitivity,FAR,X,downsampleRATE,inflater=2/3):
+    if sensitivity<1:
+        Xs = applyDrugOneSample(samp=X,efficacy=(1-sensitivity))
+    else:
+        Xs = X
+    if FAR>0:
+        downsampleRATEhalf = 0.5*downsampleRATE
+        Xadder = 0
+        x = np.random.random(downsampleRATE)
+        zeroMean = FAR*inflater*(np.sum(x) - downsampleRATEhalf)
+        Xadder = np.round(downsampleRATE*FAR + zeroMean).astype('int')
+        if Xadder<0:
+            Xadder = 0
+        Xs += Xadder
+    return int(Xs)
 
 def get_a_qualified_patient(minSz,baseline,trialDur,clinTF,sensitivity,FAR,PCB,DRG,useDRG,inflater):
     isDone = False
@@ -220,244 +238,251 @@ def drawGrid(fn,clinTF,ax=[]):
 
 
 ### Model of sz freedom (Chen et al 2018)
-# 1rst: 46%
-# 2nd: 28%
-# 3rd: 24%
-# 4th: 15%
-# 5th: 14%
-# 6th: 14%
 
-
-def show_me_one(sens,FAR,N,yrs=10,numCPUs=9):
-    clinic_interval = 30*3     # 3 months between clinic visits
-    yrs = 10
-    episilon_rate = 12       # 3 clinic visit can mess up
-    # generate all patients first
-    with Parallel(n_jobs=numCPUs, verbose=False) as par:
-        tempx = par(delayed(build_mypt)(yrs,clinic_interval) for _ in range(N))
-    mypt = np.array(tempx,dtype=int)
-    L = mypt.shape[2]
-    #plt.subplot(3,1,1)
-    t = np.arange(40) / 4
-    #for i in range(N):
-        #plt.plot(t,mypt[i,0,:],'b',alpha=0.2)
-        #plt.plot(t,mypt[i,1,:],'r',alpha=0.2)
-    plt.plot(t,np.median(mypt[:,0,:],axis=0),'-b',label='e')
-    plt.plot(t,np.median(mypt[:,1,:],axis=0),'-r',label='clin')
-    #plt.legend()
-    #plt.show()
-    
-    #plt.subplot(3,1,2)
-    Xe = np.zeros((N,40))
-    Xc = np.zeros((N,40))
-    Xe_sim = np.zeros((N,40))
-    Xc_sim = np.zeros((N,40))
-    decisionList_clin = np.zeros((N,40))
-    decisionList_e = np.zeros((N,40))
-    decisionList_true = np.zeros((N,40))
-    for i in range(N):
-        Xe[i,:] = add_sens_and_FAR(sensitivity=sens,FAR=FAR,X=mypt[i,0,:],downsampleRATE=clinic_interval,inflater=2/3)
-        Xc[i,:] = add_sens_and_FAR(sensitivity=sens,FAR=FAR,X=mypt[i,1,:],downsampleRATE=clinic_interval,inflater=2/3)
-        #plt.plot(t,Xe[i,:],'b',alpha=0.2)
-        #plt.plot(t,Xc[i,:],'r',alpha=0.2)
-        decisionList_clin[i,:],decisionList_e[i,:],decisionList_true[i,:],trueX_sim,Xe_sim[i,:],Xc_sim[i,:] = simulate_1pt_in_clinic(mypt[i,1,:],Xe[i,:],Xc[i,:])
-    
-    #plt.plot(t,np.median(Xe,axis=0),':b',label='e-device')
-    #plt.plot(t,np.median(Xc,axis=0),':r',label='clin-device')
-    plt.plot(t,np.mean(Xe,axis=0),':b',label='e-device')
-    plt.plot(t,np.mean(Xc,axis=0),':r',label='clin-device')
-    #plt.title('device applied')
-    #plt.legend()
-    #plt.show()
-    
-    #plt.subplot(3,1,3)
-    #plt.plot(t,np.median(Xe_sim,axis=0),'--b',label='e-device-meds')
-    #plt.plot(t,np.median(Xc_sim,axis=0),'--r',label='clin-device-meds')
-    plt.plot(t,np.mean(Xe_sim,axis=0),'--b',label='e-device-meds')
-    plt.plot(t,np.mean(Xc_sim,axis=0),'--r',label='clin-device-meds')
-    
-    plt.title('device applied med applied')
-    plt.legend()
-    plt.show()
-    
-    #plt.plot(t,np.median(decisionList_true,axis=0),label='true')
-    #plt.plot(t,np.median(decisionList_e,axis=0),label='e')
-    #plt.plot(t,np.median(decisionList_clin,axis=0),label='clin')
-        
-    plt.plot(t,np.mean(decisionList_true,axis=0),'r',label='true')
-    plt.plot(t,np.mean(decisionList_e,axis=0),'b',label='e')
-    plt.plot(t,np.mean(decisionList_clin,axis=0),'k',label='clin')
-    plt.plot(t,np.mean(decisionList_true,axis=0)+np.std(decisionList_true),'r',alpha=0.4)
-    plt.plot(t,np.mean(decisionList_true,axis=0)-np.std(decisionList_true),'r',alpha=0.4)
-    plt.plot(t,np.mean(decisionList_e,axis=0)+np.std(decisionList_e),'b',alpha=0.4)
-    plt.plot(t,np.mean(decisionList_e,axis=0)-np.std(decisionList_e),'b',alpha=0.4)
-    plt.plot(t,np.mean(decisionList_clin,axis=0)+np.std(decisionList_clin),'k',alpha=0.4)
-    plt.plot(t,np.mean(decisionList_clin,axis=0)-np.std(decisionList_clin),'k',alpha=0.4)
-
-
-    #plt.boxplot(decisionList_true)
-    plt.legend()
-    plt.title('med counts')
-    plt.show()
-
-    
-def simulate_clinic(sensLIST,FARlist,N=10000,yrs=10,numCPUs=9):
-    clinic_interval = 30*3     # 3 months between clinic visits
-    yrs = 10
-    episilon_rate = 12       # 3 clinic visit can mess up
-    # generate all patients first
-    with Parallel(n_jobs=numCPUs, verbose=False) as par:
-        tempx = par(delayed(build_mypt)(yrs,clinic_interval) for _ in range(N))
-    mypt = np.array(tempx,dtype=int)
-    L = mypt.shape[2]
-
+def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,NOFIG=False,fn='',clinTF=True):
+    if NOFIG==False:
+        plt.subplots(3,3,sharex=True,sharey=True,figsize=(12,12))
+    counter = 0
     df = pd.DataFrame()
-    for sens in tqdm(sensLIST,desc='sensitivity'):
-        for FAR in tqdm(FARlist,desc='FAR'):
-            with Parallel(n_jobs=numCPUs, verbose=False) as par:
-                tempx = par(delayed(do_one_pt_clinic_rates)(mypt[ti,:,:],clinic_interval,sens,FAR) for ti in range(N))
-            pset = np.array(tempx,dtype=float)
-            print(pset)
-            p1c = np.mean(pset[:,0]>(L-episilon_rate))
-            p2c = np.mean((pset[:,1]+pset[:,0])>episilon_rate)
-            r1c = np.mean(pset[:,0]) / L
-            r2c = np.mean(pset[:,1]) / L
-            p1e = np.mean(pset[:,2]>(L-episilon_rate))
-            p2e = np.mean(pset[:,3]>episilon_rate)
-            r1e = np.mean(pset[:,2]) / L
-            r2e = np.mean(pset[:,3]) / L
-            
-            df2 = pd.DataFrame({'sens':[sens],'FAR':[FAR],'p1c':[p1c],'p2c':[p2c],'r1c':[r1c],'r2c':[r2c],
-                                'p1e':[p1e],'p2e':[p2e],'r1e':[r1e],'r2e':[r2e]})
-            df = pd.concat([df,df2])            
     
-    pd.set_option('display.precision', 3)
-    display(df)
-    fig,ax = plt.subplots(2,2,sharex=True,sharey=True,figsize=(10,10))     
-    d3 = df.copy()
-    d3=d3.drop(columns=['p1e','p2e','r1e','r2e','p2c','r1c','r2c'])
-    thispow = df.pivot('FAR','sens','p1c')
+    for si,sens in enumerate(tqdm(sLIST,desc='sensitivity')):
+        for fi,FAR in enumerate(tqdm(fLIST,desc='FAR',leave=False)):
     
-    sns.heatmap(thispow, annot=True,linewidths=0.5,vmin=0,vmax=1,ax=ax[0,0])
-    ax[0,0].set_title(f'p1c - % patients that get PERFECT match CLINICAL') 
-    d3 = df.copy()
-    d3=d3.drop(columns=['p2e','r1e','r2e','p1c','p2c','r1c','r2c'])
-    thispow = df.pivot('FAR','sens','p1e')
+    #for si,sens in enumerate(sLIST):
+    #    for fi,FAR in enumerate(fLIST):
     
-    sns.heatmap(thispow, annot=True,linewidths=0.5,vmin=0,vmax=1,ax=ax[0,1])
-    ax[0,1].set_title(f'p1e - % patients that get PERFECT match ELECTROGRAPHIC') 
-    d3 = df.copy()
-    d3=d3.drop(columns=['p1e','p2e','r1e','r2e','p1c','r1c','r2c'])
-    thispow = df.pivot('FAR','sens','p2c')
+            counter+=1
+            if NOFIG==False:
+                plt.subplot(3,3,counter)
+            szfree, drugCounts,szCounts = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater)
+            df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.mean(drugCounts)],'meanSz':[np.mean(szCounts)]})])
     
-    sns.heatmap(thispow, annot=True,linewidths=0.5,vmin=0,vmax=1,ax=ax[1,0])
-    ax[1,0].set_title(f'p2c - % ever get less meds then CORRECT clin') 
-    d3 = df.copy()
-    d3=d3.drop(columns=['p1e','r1e','r2e','p1c','p2c','r1c','r2c'])
-    thispow = df.pivot('FAR','sens','p2e')
-    
-    sns.heatmap(thispow, annot=True,linewidths=0.5,vmin=0,vmax=1,ax=ax[1,1])
-    ax[1,1].set_title(f'p2e -  % ever get less meds then CORRECT electr') 
-    plt.show()
-    
+    if NOFIG==False:
+        plt.show()
+    print(df)
+    if fn != '':
+        df.to_csv(fn,index=False)
+    return df
 
-       
+def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3):
+    # define some constants
+    clinic_interval = 30*3     # 3 months between clinic visits
+    yrs = 10
+    L = int(10*12*30 / clinic_interval)
     
+    # run each patient
+    if numCPUs>1:
+        with Parallel(n_jobs=numCPUs, verbose=False) as par:
+            temp = par(delayed(sim1clinic)(sens,FAR,clinic_interval,clinTF,L,inflater) for _ in range(N))
+    else:
+        temp = [ sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater) for _ in trange(N)]
 
-def do_one_pt_clinic_rates(mypt,clinic_interval,sens,FAR):
+    bigX = np.array(temp,dtype=int)
+    trueCount = bigX[:,0]
+    sensorCount = bigX[:,1]
+    drugCountSensor = bigX[:,2]
+    szFree =bigX[:,3]
     
-    Xe = add_sens_and_FAR(sensitivity=sens,FAR=FAR,X=mypt[0,:],downsampleRATE=clinic_interval,inflater=2/3)
-    Xc = add_sens_and_FAR(sensitivity=sens,FAR=FAR,X=mypt[1,:],downsampleRATE=clinic_interval,inflater=2/3)
+    toMonths = L * 3
+    if noFig==False:
+        BINS = [np.arange(15),np.linspace(0,6,24)]
+        plt.hist2d(trueCount/toMonths,drugCountSensor/toMonths,bins=BINS)
+        plt.xlabel('True clinical seizures')
+        plt.ylabel('Drug months')
+        plt.title(f'Sens={sens} FAR ={FAR}')
+    if showTF==True:
+        plt.show()
+        print(f'FAR = {FAR} sensitivity = {sens} Sz Free = {np.mean(szFree)}')
+    else:
+        return np.mean(szFree),trueCount/toMonths,drugCountSensor/toMonths
+
+def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater):
+    # simulate 1 patient all the way through
     
-    decisionList_clin,decisionList_e,decisionList_true,_,_,_ = simulate_1pt_in_clinic(mypt[1,:],Xe,Xc)
-    r1c,r2c = compute_this_clinical_rate(decisionList_clin,decisionList_true)
-    r1e,r2e = compute_this_clinical_rate(decisionList_e,decisionList_true)
+    # constants
+    yrs=10
+    addChance = .8
+    twoyears = 8        # 8 visits 3 months apart = 2 years...
+    drugStrengthLO = 0.1
+    drugStrengthHI = 0.2
+    maxMEDS = 6.5
+    doDISCOUNT = True
+
+    ### Model of sz freedom (Chen et al 2018) (note we use percentage of total cohort % values)
+    ### also Brodie et al 2012
+    r = np.random.random()
+    patternCutoffs = np.cumsum([0.37,0.22,0.16,0.25])
+    if r<patternCutoffs[0]:
+        # early lasting sz freedom
+        patternABCD = 0
+    elif r<patternCutoffs[1]:
+        # delayed lasting sz freedom
+        patternABCD = 1
+    elif r<patternCutoffs[2]:
+        # fluctuating 1yr sz freedom
+        patternABCD = 2
+    else:
+        # no sz freedom
+        patternABCD = 3
+        
+    successLIST = [0,.46,.28,.24,.15,0.14,0.14,0]
+    #successLIST = [0,.72,.18,.07,.02,0.01,0.01,0]
     
-    return np.array([r1c,r2c,r1e,r2e])
-
-def compute_this_clinical_rate(decisionList_x,decisionList_true):
-    # r1 = number of correct decisions
-    # r2 = number of over-drugging decisions
-    #r1 = np.sum(decisionList_true==decisionList_true)
-    r1 = np.sum(decisionList_x==decisionList_true)
-    r2 = np.sum(decisionList_x>decisionList_true)
-    return r1,r2
-
-
-def simulate_1pt_in_clinic(myptT,Xe,Xc):    
-    L = len(myptT)
-    decisionList_true, newMypt = do_decisions(myptT,L)
-    decisionList_e, newXe = do_decisions(Xe,L)
-    decisionList_c, newXc = do_decisions(Xc,L)
-    
-    return decisionList_c,decisionList_e,decisionList_true,newMypt,newXe,newXc
-
-def do_decisions(myX,L):
-    X = myX.copy()
-    addChance = .5
-    twoyears = 8        # 8 visits 3 months apart = 2 years
-    drugStrength = 0.2
-    decisionList = np.zeros(L).astype('int')
-    szFree = np.zeros(L).astype('int')
-    nochangeCounter = 0
-    maxMEDS = 6
-    # the first 3 months will have a decision of do nothing, so start on the second visit.
-    for i in range(1,L):
-        # first, apply the previous decision to this sample
-        if szFree[i] == 1:
-            X[i] = 0
-        else:
-            for drugNum in range(decisionList[i-1]):
-                X[i] = applyDrugOneSample(samp=X[i],efficacy=drugStrength)
-
-        # now make this clinic's decision based on the result        
-        if X[i]<= (0.5 * X[i-1]):
-            # no change condition
-            decisionList[i] = decisionList[i-1]
-            # check if 2 yrs sz free
-            nochangeCounter += 1
-            if nochangeCounter==twoyears:
-                # nothing bad in 2 years, decrease med
-                decisionList[i] = np.max([ (decisionList[i-1] - 1) ,0])
-                nochangeCounter = 0
-        else:
-            # add med condition... 
-            # probabilistically add a med
-            coinFlip = np.random.random()<addChance
-            if coinFlip==True:
-                # now actually add a med
-                decisionList[i] = decisionList[i-1]+1        
-                decisionList[i] = np.min([decisionList[i],maxMEDS])
-                nochangeCounter = 0
-                ### Model of sz freedom (Chen et al 2018)
-                # 1rst: 46%
-                # 2nd: 28%
-                # 3rd: 24%
-                # 4th: 15%
-                # 5th: 14%
-                # 6th: 14%
-                if decisionList[i]==1:
-                    changeSZFREE = .46
-                elif decisionList[i]==2:
-                    changeSZFREE = .28
-                elif decisionList[i]==3:
-                    changeSZFREE = .24
-                elif decisionList[i]==4:
-                    changeSZFREE = .15
-                elif decisionList[i]==5:
-                    changeSZFREE = .14
-                elif decisionList[i]==6:
-                    changeSZFREE = .14
-                else:
-                    changeSZFREE = 0
-                if np.random.random() < changeSZFREE:
-                    szFree[i:] = 1
-                    
-    return decisionList,X
-                
-def build_mypt(yrs,clinic_interval):
+    # First make 1 patient true_e and true_c
     sampRATE = 6
     howmanydays = yrs*30*12
     true_e_diary, true_clin_diary = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=sampRATE*clinic_interval)
 
-    return np.concatenate([[true_e_diary], [true_clin_diary]])
+    if clinTF==True:
+        X = true_clin_diary.copy().astype('int')
+    else:
+        X = true_e_diary.copy().astype('int')
+    sensorXdrugged = X.copy()
+    trueXdrugged = X.copy()
+    
+    # Now start looping along
+    decisionList = np.zeros(L)
+    szFree = np.zeros(L).astype('int')
+    nochangeCounter = 0
+    drugCount =0
+    
+    trueXdrugged[0] = X[0]
+    sensorXdrugged[0] = add_sens_and_FAR_onesamp(sensitivity=sens,FAR=FAR,X=X[0],downsampleRATE=clinic_interval,inflater=inflater)
+    if doDISCOUNT:
+        sensorXdrugged[0] = np.max([0,sensorXdrugged[0]-FAR*clinic_interval])
+    for i in range(1,L):
+        # apply drugs to the sample first
+        thisSamp = X[i]
+        for Dcount in range(1,7):
+            if drugCount==Dcount:
+                thisSamp = applyDrugOneSample(samp=thisSamp,efficacy=drugStrengthLO)
+            elif drugCount>=(Dcount+0.5):
+                thisSamp = applyDrugOneSample(samp=thisSamp,efficacy=drugStrengthHI)
+        if szFree[i]==1:
+            thisSamp = 0
+            
+        trueXdrugged[i] = thisSamp
+        
+        # what does sensor show after that?
+        thisI = add_sens_and_FAR_onesamp(sensitivity=sens,FAR=FAR,X=thisSamp,downsampleRATE=clinic_interval,inflater=inflater)
+        if doDISCOUNT:
+            thisI = np.max([0,thisI-FAR*clinic_interval])
+
+        sensorXdrugged[i] = thisI
+        
+        lastI = sensorXdrugged[i-1]
+        if thisI <= (lastI*0.5):
+            # things have improved
+            nochangeCounter +=1
+            # has this been good for 2 years?
+            if nochangeCounter==twoyears:
+                # then decrease something
+                if np.floor(drugCount)==drugCount:
+                    drugCount = np.max([0,drugCount-0.5])
+                else:
+                    drugCount = np.floor(drugCount)
+                
+        else:
+            # things remain bad
+            nochangeCounter=0
+            # ready to increase something?
+            if np.random.random()<addChance:
+                
+                if drugCount==0:
+                    drugCount=1
+                    newDrug=True
+                elif drugCount==maxMEDS:
+                    # we already are at max. no change
+                    drugCount=maxMEDS
+                    newDrug=False
+                else:
+                    drugCount += 0.5
+                    newDrug = (np.floor(drugCount)==drugCount)
+                if newDrug:
+                    # we have added a new drug now
+                    # will this make us sz free?
+                    dIND = np.floor(drugCount).astype('int')
+                    if np.random.random()<successLIST[dIND]:
+                        if patternABCD==0:
+                            szFree[i:] = 1
+                        elif patternABCD==1:
+                            # delayed sz free sustained
+                            delayT = np.random.randint(4)
+                            istart = np.min([i+delayT,L-1])
+                            szFree[istart:]
+                        else:
+                            # fluctuating sz freedom or no szfreedom
+                            imax = np.min([i + 4,L])
+                            szFree[i:imax] = 1
+                            
+        
+        decisionList[i] = drugCount
+        
+    vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree))]
+
+    return vals
+
+## FOR injury case
+
+def run_injury_case(sens,FAR,N=10000,numCPUs=9,clinTF=True):
+    # see review from Beghi 2009
+    # there are two different rates for different populations, so we will just get both.
+    # the rates are in events per 100 patient years, so we convert to events per 1 patient day.
+    injury_rate_per_pt_dayA = 3 / (100*365)
+    injury_rate_per_pt_dayB = 300 / (100*365)
+    
+    df = pd.DataFrame()
+    for injuryRate in [injury_rate_per_pt_dayA,injury_rate_per_pt_dayB]:
+        if numCPUs>1:
+            with Parallel(n_jobs=numCPUs, verbose=False) as par:
+                temp = par(delayed(simInjuries)(sens,FAR,clinTF,injuryRate) for _ in trange(N))
+        #else numCPUs==1:
+        #    temp = [ simInjuries(sens,FAR,clinTF,injuryRate,inflater) for _ in trange(N)]
+        bigX = np.array(temp,dtype=float)
+        noInjury = np.where(bigX[:,1]==0)[0]
+        yesInjury = np.where(bigX[:,1]>0)[0]
+        detectedFrac = np.mean(bigX[yesInjury,0] / bigX[yesInjury,1])
+        temp = pd.DataFrame({'clinTF':[clinTF],'sens':[sens],'FAR':[FAR],
+                             'rate':[int(injuryRate*100*365)],
+                             'detected%':[int(100*detectedFrac)],'noInjury':[len(noInjury)],'total':[int(np.sum(bigX[:,1]))],
+                             'mean':[np.mean(bigX[:,1])]})
+        print(temp)
+        df = pd.concat([df,temp])
+    #print(df)
+    return df
+
+def simInjuries(sens,FAR,clinTF,injuryRate):
+    
+    inflater = 2  # this is bigger than 2/3 because otherwise it will be too small!
+    
+    # First make 1 patient true_e and true_c
+    yrs = 10
+    sampRATE = 24*6 # we sample once every 10 minutes
+    howmanydays = yrs*365
+    true_e_diary, true_clin_diary = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=1)
+    if clinTF==True:
+        thisDiary = true_clin_diary.copy()
+    else:
+        thisDiary = true_e_diary.copy()
+
+    thisSensor = add_sens_and_FAR(sensitivity=sens,FAR=FAR/sampRATE,X=thisDiary,downsampleRATE=1,inflater=inflater)
+    
+    numSamples = howmanydays*sampRATE
+    plist = np.random.poisson(lam = injuryRate/sampRATE,size=numSamples)
+    injuryTime = False
+    detectedCount = 0
+    injuryCount = 0
+    for samp in range(numSamples):
+        if plist[samp]>0:
+            injuryTime=True
+            # now we wait for the next seizure and injure them then. I know - imperfect.
+            # if we would require seizure at same time, we might decrease the rate
+        if (true_clin_diary[samp]>0) and (injuryTime==True):
+            # if there really is a clinical seizure, and it is time for an injury, then do one
+            injuryCount+=1
+            injuryTime=False
+            if thisSensor[samp]>0:
+                # I did detect an injury
+                detectedCount += 1
+
+    return detectedCount,injuryCount
