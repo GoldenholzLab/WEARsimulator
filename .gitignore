@@ -4,6 +4,8 @@ pix/
 *.npy
 *.csv
 *.png
+*.xlsx
+*.tif
 toony.ipynb
 
 # Byte-compiled / optimized / DLL files

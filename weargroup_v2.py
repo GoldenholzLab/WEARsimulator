@@ -4,8 +4,8 @@ from trialSimulator import getPC
 from trialSimulator import calculate_fisher_exact_p_value, calculate_MPC_p_value
 from weargroup import make_multi_diaries
 from joblib import Parallel, delayed
-#from tqdm.notebook import trange, tqdm
-from tqdm import trange, tqdm
+#from tqdm import trange, tqdm
+from tqdm.notebook import trange, tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
@@ -31,7 +31,7 @@ def applyDrug(efficacy,x,baseline):
 
         # for each seizure count entry, and for each seizure, consider deleting
         # using efficacy as the probability of deleting
-        x2 = [  applyDrugOneSample(x[iter],efficacy) for iter in range(baseline,L) ]    
+        x2[baseline:] = [  applyDrugOneSample(x[iter],efficacy) for iter in range(baseline,L) ]    
         
         return np.array(x2).astype('int')
     else:
@@ -73,6 +73,10 @@ def add_sens_and_FAR(sensitivity,FAR,X,downsampleRATE,inflater=2/3):
         downsampleRATEhalf = 0.5*downsampleRATE
         Xadder = np.zeros(L).astype('int')
         for i in range(L):
+            # the following code allows for a small baseline rate change for each sample
+            # zeroMean should be a random number with zero mean, but with std dev of 1 if 
+            # inflater is 2/3. It could be bigger or smaller standard dev. What this does
+            # in practice is make the sensor have more intra-individual variability.
             x = np.random.random(downsampleRATE)
             zeroMean = FAR*inflater*(np.sum(x) - downsampleRATEhalf)
             Xadder[i] = np.round(downsampleRATE*FAR + zeroMean).astype('int')
@@ -98,22 +102,35 @@ def add_sens_and_FAR_onesamp(sensitivity,FAR,X,downsampleRATE,inflater=2/3):
         Xs += Xadder
     return int(Xs)
 
-def get_a_qualified_patient(minSz,baseline,trialDur,clinTF,sensitivity,FAR,PCB,DRG,useDRG,inflater):
+def get_a_qualified_patient(minSz,baseline,trialDur,clinTF,sensitivity,FAR,PCB,DRG,useDRG,inflater,accountForFAR,accountForSens):
+
     isDone = False
     while isDone==False:
         this_pt = get_a_patient(trialDur,baseline,clinTF,sensitivity,FAR,PCB,DRG,useDRG,inflater)
-        isDone = np.mean(this_pt[0:baseline])>=minSz
-
+        if accountForSens:
+            minSz *= sensitivity
+        if accountForFAR:
+            isDone = (np.mean(this_pt[0:baseline]) - (FAR*28))>=minSz
+        else:
+            isDone = np.mean(this_pt[0:baseline])>=minSz
+        
     return this_pt
 
-def build_a_trial(N,halfN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater):
+def build_a_trial(N,halfN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater,accountForFAR=True,accountForSens=False):
     trialDur = baseline+test
     
     # build trial data (number of patients by number of months
     trialData = np.zeros((N,trialDur))
     for counter in range(N):
-        trialData[counter,:] = get_a_qualified_patient(minSz,baseline,trialDur,clinTF,sensitivity,FAR,PCB,DRG,(counter>=halfN),inflater)
-                
+        trialData[counter,:] = get_a_qualified_patient(minSz,baseline,trialDur,clinTF,sensitivity,FAR,PCB,DRG,(counter>=halfN),inflater,accountForFAR,accountForSens)
+        
+    if accountForFAR:
+        trialData = trialData - (FAR*28)
+        trialData[trialData<0] = 0
+
+    if accountForSens:
+        trialData /= sensitivity
+    
     PC = getPC(trialData,baseline,test)
     return PC
 
@@ -127,10 +144,10 @@ def didWeWin(PC_a,PC_b,metricMPC_TF):
         
     return successTF + 0
 
-def findThresh(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,recalc=True,inflater=2):
+def findThresh(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,recalc=True,inflater=2,accountForFAR=True,accountForSens=False):
     
     if recalc==True:
-        allPCs = buildPCsets(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater)
+        allPCs = buildPCsets(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater,accountForFAR,accountForSens)
     else:
         print('Loading...',end='')
         allPCs = np.load(fn) 
@@ -140,13 +157,13 @@ def findThresh(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivi
     
     return threshRR50,threshMPC
 
-def buildPCsets(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater):
+def buildPCsets(fn,numCPUs,REPS,maxN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater,accountForFAR,accountForSens):
     N=maxN
     halfN=int(maxN/2)
     T1 = time.time()
 
     with Parallel(n_jobs=numCPUs, verbose=False) as par:
-        temp = par(delayed(build_a_trial)(N,halfN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater) for _ in trange(REPS,desc='trials'))
+        temp = par(delayed(build_a_trial)(N,halfN,DRG,PCB,minSz,baseline,test,clinTF,sensitivity,FAR,inflater,accountForFAR,accountForSens) for _ in trange(REPS,desc='trials'))
     allPCs = np.array(temp,dtype=float)
     
     delT = np.round((time.time()-T1)/60)
@@ -161,7 +178,7 @@ def checkThresh(allPCs,numCPUs,REPS,maxN,metricMPC_TF):
     T1 = time.time()
     print('Threshold ...',end='')
     halfMax = int(maxN/2)
-    for thisN in range(100,maxN,5):
+    for thisN in range(100,maxN,10):
         halfN = int(thisN/2)
         with Parallel(n_jobs=numCPUs, verbose=False) as par:
             temp = par(delayed(didWeWin)(allPCs[iter,0:halfN],allPCs[iter,halfMax:(halfMax+halfN)],metricMPC_TF) for iter in range(REPS))
@@ -174,20 +191,22 @@ def checkThresh(allPCs,numCPUs,REPS,maxN,metricMPC_TF):
     print(f'{thisN}. runtime = {delT} minutes')
     return thisN
 
-def buildSET_of_N(senseLIST,farLIST,recalc,thiscsv,clinTF=True,REPS=10000,maxN=3000,DRG=0.2,mini=False,inflater=2):
+def buildSET_of_N(senseLIST,farLIST,recalc,thiscsv,clinTF=True,REPS=10000,maxN=3000,DRG=0.2,mini=False,inflater=2,accountForFAR=True,accountForSens=False):
     if mini==False:
         numCPUs = 9
         thedir = '/Users/danielgoldenholz/Library/CloudStorage/OneDrive-BethIsraelLaheyHealth/Comprehensive Epilepsy Program & EEG Lab/Research/Goldenholz Lab/wear'
     else:
         numCPUs = 7
-        thedir = '/Users/dgodenh/OneDrive - Beth Israel Lahey Health/Comprehensive Epilepsy Program & EEG Lab/Research/Goldenholz Lab/wear'
-
+        thedir = '/Users/dgodenh/Documents/GitHub/WEARsimulator'
+        #thedir = '/Users/dgodenh/OneDrive - Beth Israel Lahey Health/Comprehensive Epilepsy Program & EEG Lab/Research/Goldenholz Lab/wear'
+    
     d2 = pd.DataFrame()
     for sensitivity in senseLIST:
         for FAR in farLIST:
             fn = f'{thedir}/PC_{clinTF}_sens{sensitivity}_FAR{FAR}_{REPS}x{maxN}_{inflater}.npy'
             tRR,tMP = findThresh(fn=fn,numCPUs=numCPUs,REPS=REPS,maxN=maxN,DRG=DRG,PCB=0,minSz=4,
-                    baseline=2,test=3,clinTF=clinTF,sensitivity=sensitivity,FAR=FAR,recalc=recalc,inflater=inflater)
+                    baseline=2,test=3,clinTF=clinTF,sensitivity=sensitivity,FAR=FAR,recalc=recalc,
+                    inflater=inflater,accountForFAR=accountForFAR,accountForSens=accountForSens)
             #print(f'S={sensitivity} F={FAR} Threshold RR50 = {tRR} Threshold MPC = {tMP}')
             df = pd.DataFrame({'sensitivity':[sensitivity],
                                'FAR':[FAR],
@@ -206,7 +225,7 @@ def drawGrid(fn,clinTF,ax=[]):
     else:
         doShow = False
     #maxList = [530, 900]
-    maxList = [550,910]
+    maxList = [540,900]
     mlist=['MPC','RR50']
     for mi,metric_type in enumerate(mlist):
         d3 = d2.copy()
@@ -217,7 +236,24 @@ def drawGrid(fn,clinTF,ax=[]):
         ax[mi].set_title(f'Power Metric={metric_type} clinTF={clinTF}')    
     if doShow==True:
         plt.show()
-    
+
+def make_full_RCT_sets(drawingOn,prefix,sensLIST,farLIST,inflaterLIST=[2/3],mini=False,accountForFAR=True,accountForSens=False):
+    theREPS = 10000
+    for inflater in inflaterLIST:
+        print(f'Inflater = {inflater}')
+        if drawingOn:
+            fig,ax = plt.subplots(2,2,sharex=True,sharey=True,figsize=(10,10))   
+        for ci,clinTF in enumerate([True,False]):        
+            fn = f'{prefix}_{clinTF}_inf{inflater}.csv'
+            #[0,.05,.1,.5,1,2,10]
+            if drawingOn==False:
+                buildSET_of_N(sensLIST,farLIST,recalc=True,thiscsv=fn,clinTF=clinTF,REPS=theREPS,maxN=1500,DRG=0.2,
+                        mini=mini,inflater=inflater,accountForFAR=accountForFAR,accountForSens=accountForSens)
+            else:
+                drawGrid(fn,clinTF=clinTF,ax=ax[ci,:])
+        
+        #if drawingOn:        
+        #    plt.show()
     
 ## Tools for PART 2
 # run for 10 years per patient x 10000 patients
@@ -226,18 +262,7 @@ def drawGrid(fn,clinTF,ax=[]):
 # if rate[1] = 0 or rate[1] =< (½) rate[0], NO CHANGE
 # If NO CHANGE for 2 years, remove one drug
 # if rate[1] > (½) rate[0], add med with 20% efficacy - but only do it 80% of the time because of conservative clinician
-# CORRECT treatment = the above algorithm based on “true clinical” diary. Compare CORRECT to others:
-# % patients that get PERFECT match = P1
-# % of patients that never get less meds then CORRECT = P2
-# P3  = P2-P1 → % patients that get TOO MUCH meds
-# P4 = 100-P2 —> % patients that get NOT ENOUGH meds
-# r1 = RATE of PERFECT clinical decisions
-# r2 = RATE of OVERDRUGGING
-# r3 = RATE of UNDERDRUGGING
-# have some epsilon, like 10% in either direction
-
-
-### Model of sz freedom (Chen et al 2018)
+### Model of sz freedom (Chen et al 2018), and patterns of sz freedom (Brodie et al 2012)
 
 def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,NOFIG=False,fn='',clinTF=True):
     if NOFIG==False:
@@ -254,8 +279,8 @@ def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,N
             counter+=1
             if NOFIG==False:
                 plt.subplot(3,3,counter)
-            szfree, drugCounts,szCounts = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater)
-            df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.mean(drugCounts)],'meanSz':[np.mean(szCounts)]})])
+            szfree, szCounts, drugCounts = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater)
+            df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/39],'meanSz':[np.median(szCounts)/(39*3)]})])
     
     if NOFIG==False:
         plt.show()
@@ -264,11 +289,74 @@ def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,N
         df.to_csv(fn,index=False)
     return df
 
+def plot_the_clinic_sets(f1,f2,fn):
+    # make a pretty graphical representation of the whole thing
+    p1 = pd.read_csv(f1)
+    f0 = p1[p1['FAR']==0]
+    s5 = f0[f0['sens']==0.5]
+    xOBS = s5['meanDrug'].values
+    yOBS = s5['meanSz'].values
+    p2 = pd.read_csv(f2)
+    p1['FAR'] = np.round(p1['FAR']*100) / 100
+    p2['FAR'] = np.round(p2['FAR']*100) / 100
+    p1 = p1.rename(columns={'FAR':'False alarm rate','sens':'Sensitivity'})
+    p2 = p2.rename(columns={'FAR':'False alarm rate','sens':'Sensitivity'})
+    
+    plt.figure(figsize=(10,10))
+    plt.subplot(2,2,1)
+    plt.title('Clinic case, Sensitivity, ClinTF=False')
+    sns.color_palette("bright")
+    sns.scatterplot(data=p2,x='meanDrug',y='meanSz',
+                    size='Sensitivity',size_norm=(.5,1),sizes=(10,100),legend=False)
+    #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.grid(True)
+    plt.xlabel('Average drugs per month per patient')
+    plt.ylabel('Average seizures per month per patient')
+
+    plt.subplot(2,2,3)
+    plt.title('Clinic case, FAR, ClinTF=False')
+    sns.color_palette("bright")
+    sns.scatterplot(data=p2,x='meanDrug',y='meanSz',
+                    palette=['black','purple','cyan','orange','red','blue','green'],
+                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8,legend=False)
+    #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.grid(True)
+    plt.xlabel('Average drugs per month per patient')
+    plt.ylabel('Average seizures per month per patient')
+
+    
+    plt.subplot(2,2,2)
+    plt.title('Clinic case, sensitivity, ClinTF=True')
+    sns.scatterplot(data=p1,x='meanDrug',y='meanSz',
+                    size='Sensitivity',size_norm=(.5,1),sizes=(10,100))
+    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+    plt.grid(True)
+    plt.xlabel('Average drugs per month per patient')
+    plt.ylabel('Average seizures per month per patient')
+    
+    plt.subplot(2,2,4)
+    plt.title('Clinic case, FAR, ClinTF=True')
+    sns.scatterplot(data=p1,x='meanDrug',y='meanSz',
+                    palette=['black','purple','cyan','orange','red','blue','green'],
+                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8)
+    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+    plt.grid(True)
+    plt.xlabel('Average drugs per month per patient')
+    plt.ylabel('Average seizures per month per patient')
+    
+    
+    plt.savefig(fn,dpi=300)
+    plt.show()
+
+
+    
 def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3):
     # define some constants
     clinic_interval = 30*3     # 3 months between clinic visits
     yrs = 10
-    L = int(10*12*30 / clinic_interval)
+    L = int(yrs*12*30 / clinic_interval)
     
     # run each patient
     if numCPUs>1:
@@ -294,13 +382,14 @@ def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3
         plt.show()
         print(f'FAR = {FAR} sensitivity = {sens} Sz Free = {np.mean(szFree)}')
     else:
-        return np.mean(szFree),trueCount/toMonths,drugCountSensor/toMonths
+        # these are normalized.
+        #return np.mean(szFree),trueCount/toMonths,drugCountSensor/toMonths
+        return np.mean(szFree),trueCount,drugCountSensor
 
 def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater):
     # simulate 1 patient all the way through
     
     # constants
-    yrs=10
     addChance = .8
     twoyears = 8        # 8 visits 3 months apart = 2 years...
     drugStrengthLO = 0.1
@@ -330,7 +419,7 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater):
     
     # First make 1 patient true_e and true_c
     sampRATE = 6
-    howmanydays = yrs*30*12
+    howmanydays = L*clinic_interval
     true_e_diary, true_clin_diary = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=sampRATE*clinic_interval)
 
     if clinTF==True:
@@ -417,27 +506,36 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater):
                             
         
         decisionList[i] = drugCount
-        
+    
     vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree))]
 
     return vals
 
 ## FOR injury case
+def do_all_injury_cases(N=10000,numCPUs=9):
+    xf = pd.DataFrame()
+    for sens in np.linspace(0.5,1,6):
+        for clinTF in [True,False]:
+            x = run_injury_case(sens=sens,FAR=0,N=N,numCPUs=numCPUs,clinTF=clinTF)
+            xf = pd.concat([xf,x])
+    xf.to_csv('Injury_case.csv',index=False)
+    print(xf)
 
 def run_injury_case(sens,FAR,N=10000,numCPUs=9,clinTF=True):
-    # see review from Beghi 2009
+    # see Russell-Jones et al 1989, and Neufeld et al 1999 
     # there are two different rates for different populations, so we will just get both.
     # the rates are in events per 100 patient years, so we convert to events per 1 patient day.
-    injury_rate_per_pt_dayA = 3 / (100*365)
-    injury_rate_per_pt_dayB = 300 / (100*365)
+    #
+    injury_rate_per_pt_dayA = 4.8 / (100*365)
+    injury_rate_per_pt_dayB = 296 / (100*365)
     
     df = pd.DataFrame()
     for injuryRate in [injury_rate_per_pt_dayA,injury_rate_per_pt_dayB]:
         if numCPUs>1:
             with Parallel(n_jobs=numCPUs, verbose=False) as par:
                 temp = par(delayed(simInjuries)(sens,FAR,clinTF,injuryRate) for _ in trange(N))
-        #else numCPUs==1:
-        #    temp = [ simInjuries(sens,FAR,clinTF,injuryRate,inflater) for _ in trange(N)]
+        else:
+           temp = [ simInjuries(sens,FAR,clinTF,injuryRate) for _ in trange(N)]
         bigX = np.array(temp,dtype=float)
         noInjury = np.where(bigX[:,1]==0)[0]
         yesInjury = np.where(bigX[:,1]>0)[0]
@@ -486,3 +584,281 @@ def simInjuries(sens,FAR,clinTF,injuryRate):
                 detectedCount += 1
 
     return detectedCount,injuryCount
+
+#### SUDEP case
+#
+
+def sim_SUDEP_case(fn,reps=10000,numCPUs=9):
+    xf = pd.DataFrame()
+    for sens in np.linspace(0.5,1,6):
+        for clinTF in [True,False]:
+            x = run_SUDEP_cases(sens=sens,FAR=0,N=reps,numCPUs=numCPUs,clinTF=clinTF)
+            xf = pd.concat([xf,x])
+    xf.to_csv(fn,index=False)
+    print(xf)
+    
+def run_SUDEP_cases(sens,FAR,N,numCPUs,clinTF):
+    # simulate N cases and summarize
+
+    if numCPUs>1:
+        with Parallel(n_jobs=numCPUs, verbose=False) as par:
+            temp = par(delayed(sim1SUDEP)(sens,FAR,clinTF) for _ in trange(N))
+    else:
+        temp = [ sim1SUDEP(sens,FAR,clinTF) for _ in trange(N)]
+    bigX = np.array(temp,dtype=float)
+
+    SUDEPnum=np.sum(bigX[:,0])
+    nearSUDEPnum = np.sum(bigX[:,1])
+    percentPrevented = nearSUDEPnum / (nearSUDEPnum + SUDEPnum)
+                        
+    df = pd.DataFrame({'clinTF':[clinTF],'sens':[sens],'FAR':[FAR],
+                            'SUDEP':SUDEPnum,'nearSUDEP':nearSUDEPnum,'%prevented':percentPrevented})
+    print(df)
+    return df
+
+def sim1SUDEP(sens,FAR,clinTF):
+    # simulate 1 patient 
+    
+    # constants
+    GTC_patient_risk = 0.23
+    percent_of_szs_GTC_lo = 0.09
+    percent_of_szs_GTC_hi = 0.18
+    inflater = 2  # this is bigger than 2/3 because otherwise it will be too small!
+    yrs = 10
+    howmanydays = 365*yrs
+    sampRATE = 24*6 # we sample once every 10 minutes
+    oneYEAR = sampRATE*365
+    oneMONTH = sampRATE*30
+    base_SUDEP_risk = 1.2 / (1000*oneYEAR)
+    medium_SUDEP_risk = 6.1 / (1000*oneYEAR)
+    high_SUDEP_risk = 18 / (1000*oneYEAR)
+    
+    true_e_diary, true_clin_diary = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=1)
+    if clinTF==True:
+        thisDiary = true_clin_diary.copy()
+    else:
+        thisDiary = true_e_diary.copy()
+
+    thisSensor = add_sens_and_FAR(sensitivity=sens,FAR=FAR/sampRATE,X=thisDiary,downsampleRATE=1,inflater=inflater)
+    
+ 
+        
+    # build the SUDEPrisk signal
+    do_I_have_GTCs = np.random.random() < GTC_patient_risk
+    if do_I_have_GTCs:
+        # find all the seizures first
+        inds01= np.where(thisDiary>0)
+        inds = inds01[0]
+        
+        L = len(inds)
+        # assign GTCs randomly to those
+        my_GTC_rate = (np.random.random() * (percent_of_szs_GTC_hi-percent_of_szs_GTC_lo)) + percent_of_szs_GTC_lo
+        coinFlips = np.random.random(L) < my_GTC_rate
+        
+        # compose a full GTC signal
+        GTCdiary = np.zeros(howmanydays*sampRATE)
+        GTCdiary[inds] = 0 + coinFlips
+        
+        # set up SUDEP risk based on GTCdiary
+        sudepRISK = np.zeros(howmanydays*sampRATE)
+        sudepRISK[0:oneYEAR] = base_SUDEP_risk
+        df = pd.DataFrame({'x':GTCdiary})
+        yearlyGTCcounter = np.array(df.x.rolling(oneYEAR).sum())
+        sudepRISK[yearlyGTCcounter==1] = medium_SUDEP_risk
+        sudepRISK[yearlyGTCcounter==2] = medium_SUDEP_risk
+        sudepRISK[yearlyGTCcounter==3] = high_SUDEP_risk
+    else:
+        # this patient never has a GTC, so risk is base_risk
+        sudepRISK = np.ones(howmanydays*sampRATE) * base_SUDEP_risk    
+    
+    SUDEPflag = np.random.poisson(sudepRISK)
+    
+    SUDEPcount = 0
+    NEARsudep = 0
+    if sum(SUDEPflag)>0:
+        # some SUDEP may happen
+        wx = np.where(SUDEPflag>0)
+        sudepInds = wx[0]
+        for S in sudepInds:
+            # loop through each possible SUDEP
+            i10 = np.where(thisDiary[S:]>0)
+            i0 = i10[0]
+            if len(i0)>0:
+                # there is a real seizure after that SUDEP
+                SUDEPind = S + i0[0]    # the index of the time of closest next seizure
+                if thisSensor[SUDEPind]>0:
+                    # the sensor detected this one
+                    NEARsudep += 1
+                else:
+                    # the sensor missed this one
+                    SUDEPcount += 1
+             
+    did_I_die = (SUDEPcount>0) + 0   
+    return did_I_die, NEARsudep
+
+
+### cluster case
+
+def run_full_cluster_cases(fn,N=10000,numCPUs=9):
+    xf = pd.DataFrame()
+    for clinTF in [True,False]:    
+        for sens in np.linspace(0.5,1,6):
+            x = run_cluster_cases(sens=sens,FAR=0,N=N,numCPUs=numCPUs,clinTF=clinTF)
+            xf = pd.concat([xf,x])
+        for FAR in [.05,.1,.2,.5,1,2]:
+            x = run_cluster_cases(sens=1,FAR=FAR,N=N,numCPUs=numCPUs,clinTF=clinTF)
+            xf = pd.concat([xf,x],ignore_index=True)
+    
+    xf.to_csv(fn,index=False)
+    print(xf)
+    
+def run_cluster_cases(sens,FAR,N,numCPUs,clinTF):
+    # simulate N cases and summarize
+
+    if numCPUs>1:
+        with Parallel(n_jobs=numCPUs, verbose=False) as par:
+            temp = par(delayed(sim1clusterCase)(sens,FAR,clinTF) for _ in trange(N))
+    else:
+        temp = [ sim1clusterCase(sens,FAR,clinTF) for _ in trange(N)]
+    bigX = np.array(temp,dtype=float)
+
+    szCountWithout = bigX[:,0]
+    szCountWith = bigX[:,1]
+    theDrugs = bigX[:,2]
+    szDiff=szCountWithout-szCountWith
+    drugCount = np.mean(theDrugs)
+    diffSz = np.mean(szDiff)
+    noDrugs=np.sum(theDrugs==0)
+    noSzChange = np.sum(szCountWith==szCountWithout)
+    noSzChangeDrugs = np.mean(theDrugs[szCountWith==szCountWithout])
+    
+    diffWith = np.mean(szDiff[szDiff>0])
+    drugsWith = np.mean(theDrugs[szDiff>0])
+    the75 = np.percentile(szDiff,75)
+    szDiffInds = np.argsort(szDiff)
+    the75ind = abs(szDiff[szDiffInds]-the75).argmin()
+    the75drugs = theDrugs[szDiffInds[the75ind]]
+    
+                    
+    df = pd.DataFrame({'clinTF':[clinTF],'sens':[sens],'FAR':[FAR],
+                    'diffSz':[diffSz],'drugCount':[drugCount],
+                    'noDrugs':[noDrugs],
+                    'noSzChange':[noSzChange],'noSzChangeDrugs':[noSzChangeDrugs],
+                    'diffWith':[diffWith],'drugsWith':[drugsWith],
+                    'the75':[the75],'the75drugs':[the75drugs]})
+    print(df)
+    return df
+
+def sim1clusterCase(sens,FAR,clinTF):
+    inflater = 2
+    yrs = 10
+    
+    howmanydays = 365*yrs
+    sampRATE = 24*6 # we sample once every 10 minutes
+    maxSamps = sampRATE*howmanydays
+    sixHours = int(sampRATE / 4)
+    efficacy_lo = .2
+    efficacy_hi = .3
+    drug_efficacy = np.random.random()*(efficacy_hi-efficacy_lo) + efficacy_lo
+    # the duration of the drug will be 6 to 24 hours
+    effect_duration = int(np.floor(np.random.random()*(sampRATE - sixHours) + sixHours))
+    
+    true_e_diary, true_clin_diary = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=1)
+    if clinTF==True:
+        thisDiary = true_clin_diary.copy()
+    else:
+        thisDiary = true_e_diary.copy()
+
+    thisSensor = add_sens_and_FAR(sensitivity=sens,FAR=FAR/sampRATE,X=thisDiary,downsampleRATE=1,inflater=inflater)
+    
+    allSzCount = np.sum(thisDiary)
+    
+    # detect cluster (2 or more in 6 hours)
+    df = pd.DataFrame({'x':thisSensor})
+    temp1 = np.array(df['x'].rolling(sixHours).sum())
+    windowCount = temp1.squeeze()
+    # note rolling creates Nan in the first sixHours samples, so we skip those
+    wx = np.where(windowCount[sixHours:]>=2)
+    clusterInds = wx[0]+sixHours
+    drugCount = 0
+    for thisCluster in clusterInds:
+        if windowCount[thisCluster]>=2:
+            # meaning this sample was not yet blanked out...
+            
+            # first blank out the next 6 hours
+            maxInd = np.min([thisCluster + sixHours,maxSamps])
+            windowCount[thisCluster:maxInd] = 0
+            # add to the drugCount
+            drugCount +=1
+            # then apply drug
+            maxDrugInd = np.min([thisCluster + effect_duration,maxSamps])
+            for thisSample in range(thisCluster,maxDrugInd):
+                if thisDiary[thisSample]>0 and np.random.random()<drug_efficacy:
+                    # there is a seizure, and the drug stopped it!
+                    thisDiary[thisSample] = 0
+    
+    allRemainingSzCount = np.sum(thisDiary)
+    
+    return [allSzCount,allRemainingSzCount,drugCount]
+        
+def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
+    p = pd.read_csv(fn)
+    p1 = p[p.clinTF==True]
+    p2 = p[p.clinTF==False]
+    f0 = p1[p1['FAR']==0]
+    s5 = f0[f0['sens']==0.5]
+    xOBS = s5['drugCount'].values
+    yOBS = s5['diffSz'].values
+
+    p1['FAR'] = np.round(p1['FAR']*100) / 100
+    p2['FAR'] = np.round(p2['FAR']*100) / 100
+    p1 = p1.rename(columns={'FAR':'False alarm rate','sens':'Sensitivity'})
+    p2 = p2.rename(columns={'FAR':'False alarm rate','sens':'Sensitivity'})
+    
+    plt.figure(figsize=(10,10))
+    plt.subplot(2,2,1)
+    plt.title('Cluster case, Sensitivity, ClinTF=False')
+    sns.color_palette("bright")
+    sns.scatterplot(data=p2,x='drugCount',y='diffSz',
+                    size='Sensitivity',size_norm=(.5,1),sizes=(10,100),legend=False)
+    #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.grid(True)
+    plt.xlabel('Average drugs per patient')
+    plt.ylabel('Average seizures rescued per patient')
+
+    plt.subplot(2,2,3)
+    plt.title('Cluster case, FAR, ClinTF=False')
+    sns.color_palette("bright")
+    sns.scatterplot(data=p2,x='drugCount',y='diffSz',
+                    palette=['black','purple','cyan','orange','red','blue','green'],
+                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8,legend=False)
+    #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.grid(True)
+    plt.xlabel('Average drugs per patient')
+    plt.ylabel('Average seizures rescued per patient')
+    
+    plt.subplot(2,2,2)
+    plt.title('Cluster case, sensitivity, ClinTF=True')
+    sns.scatterplot(data=p1,x='drugCount',y='diffSz',
+                    size='Sensitivity',size_norm=(.5,1),sizes=(10,100))
+    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+    plt.grid(True)
+    plt.xlabel('Average drugs per patient')
+    plt.ylabel('Average seizures rescued per patient')
+    
+    plt.subplot(2,2,4)
+    plt.title('Cluster case, FAR, ClinTF=True')
+    sns.scatterplot(data=p1,x='drugCount',y='diffSz',
+                    palette=['black','purple','cyan','orange','red','blue','green'],
+                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8)
+    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+    plt.grid(True)
+    plt.xlabel('Average drugs per patient')
+    plt.ylabel('Average seizures rescued per patient')
+    
+    if fign != '':
+        plt.savefig(fign,dpi=300)
+    plt.show()
+    
