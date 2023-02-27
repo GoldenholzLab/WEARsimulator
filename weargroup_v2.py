@@ -219,6 +219,10 @@ def buildSET_of_N(senseLIST,farLIST,recalc,thiscsv,clinTF=True,REPS=10000,maxN=3
     
 def drawGrid(fn,clinTF,ax=[]):
     d2=pd.read_csv(fn)
+    if clinTF==True:
+        clinTFtxt = 'Seizures: C'
+    else:
+        clinTFtxt = 'Seizures: C+E'
     if ax==[]:
         fig,ax = plt.subplots(1,2,sharex=True,sharey=True,figsize=(10,5))     
         doShow = True
@@ -233,7 +237,7 @@ def drawGrid(fn,clinTF,ax=[]):
         d3=d3.drop(columns=mlist[1-mi])
         thispow = d3.pivot('FAR','sensitivity',metric_type)
         sns.heatmap(thispow, annot=True,fmt='d',linewidths=0.5, ax=ax[mi],vmin=0,vmax=100)
-        ax[mi].set_title(f'Power Metric={metric_type} clinTF={clinTF}')    
+        ax[mi].set_title(f'Metric={metric_type}, {clinTFtxt}')    
     if doShow==True:
         plt.show()
 
@@ -290,6 +294,7 @@ def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,N
     return df
 
 def plot_the_clinic_sets(f1,f2,fn):
+    flist = [0,1/90,3/90,10/90,30/90,1,3]
     # make a pretty graphical representation of the whole thing
     p1 = pd.read_csv(f1)
     f0 = p1[p1['FAR']==0]
@@ -303,49 +308,61 @@ def plot_the_clinic_sets(f1,f2,fn):
     p2 = p2.rename(columns={'FAR':'False alarm rate','sens':'Sensitivity'})
     
     plt.figure(figsize=(10,10))
+    
     plt.subplot(2,2,1)
-    plt.title('Clinic case, Sensitivity, ClinTF=False')
+    plt.title('Seizures: Clinical + Electrographic')
     sns.color_palette("bright")
-    sns.scatterplot(data=p2,x='meanDrug',y='meanSz',
+    sns.scatterplot(data=p2,x='meanDrug',y='meanSz',hue='Sensitivity',palette='flare',hue_norm=(0.5,1),
                     size='Sensitivity',size_norm=(.5,1),sizes=(10,100),legend=False)
     #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
     plt.grid(True)
-    plt.xlabel('Average drugs per month per patient')
+    #plt.xlabel('Average drugs per month per patient')
     plt.ylabel('Average seizures per month per patient')
+    plt.xlabel('')
 
+    plt.subplot(2,2,2)
+    plt.title('Seizures: Clinical')
+    sns.scatterplot(data=p1,x='meanDrug',y='meanSz',hue='Sensitivity',palette='flare',hue_norm=(0.5,1),
+                    size='Sensitivity',size_norm=(.5,1),sizes=(10,100))
+    plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5)
+    #plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5,label='Self-report')
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', title='Sensitivity', borderaxespad=0)
+    plt.grid(True)
+    #plt.xlabel('Average drugs per month per patient')
+    #plt.ylabel('Average seizures per month per patient')
+    plt.xlabel('')
+    plt.ylabel('')
+    
     plt.subplot(2,2,3)
-    plt.title('Clinic case, FAR, ClinTF=False')
+    plt.title('Seizures: Clinical + Electrographic')
     sns.color_palette("bright")
-    sns.scatterplot(data=p2,x='meanDrug',y='meanSz',
-                    palette=['black','purple','cyan','orange','red','blue','green'],
-                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8,legend=False)
+    #palette=['black','purple','cyan','orange','red','blue','green'],
+    sns.scatterplot(data=p2,x='meanDrug',y='meanSz',palette='flare',hue_norm=(0,1.1),
+                    style='False alarm rate', hue='False alarm rate',hue_order=flist,
+                    s=100,alpha=0.8,legend=False)
     #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
     plt.grid(True)
     plt.xlabel('Average drugs per month per patient')
     plt.ylabel('Average seizures per month per patient')
 
-    
-    plt.subplot(2,2,2)
-    plt.title('Clinic case, sensitivity, ClinTF=True')
-    sns.scatterplot(data=p1,x='meanDrug',y='meanSz',
-                    size='Sensitivity',size_norm=(.5,1),sizes=(10,100))
-    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
-    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
-    plt.grid(True)
-    plt.xlabel('Average drugs per month per patient')
-    plt.ylabel('Average seizures per month per patient')
-    
     plt.subplot(2,2,4)
-    plt.title('Clinic case, FAR, ClinTF=True')
-    sns.scatterplot(data=p1,x='meanDrug',y='meanSz',
-                    palette=['black','purple','cyan','orange','red','blue','green'],
-                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8)
-    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
-    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+    plt.title('Seizures: Clinical')
+    sns.scatterplot(data=p1,x='meanDrug',y='meanSz',palette='flare',hue_norm=(0,1.1),
+                    style='False alarm rate',hue='False alarm rate',hue_order=flist,
+                    s=100,alpha=0.8,legend='full')
+    #plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5,label='(Selfreport)')
+    plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5)
+    
+    
+    
+   
+    
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', title='FAR', borderaxespad=0)
     plt.grid(True)
     plt.xlabel('Average drugs per month per patient')
-    plt.ylabel('Average seizures per month per patient')
-    
+    #plt.ylabel('Average seizures per month per patient')
+    plt.ylabel('')
+
     
     plt.savefig(fn,dpi=300)
     plt.show()
@@ -528,6 +545,7 @@ def run_injury_case(sens,FAR,N=10000,numCPUs=9,clinTF=True):
     #
     injury_rate_per_pt_dayA = 4.8 / (100*365)
     injury_rate_per_pt_dayB = 296 / (100*365)
+    clinTFtxt = 'C' if clinTF else 'C+E'
     
     df = pd.DataFrame()
     for injuryRate in [injury_rate_per_pt_dayA,injury_rate_per_pt_dayB]:
@@ -540,10 +558,13 @@ def run_injury_case(sens,FAR,N=10000,numCPUs=9,clinTF=True):
         noInjury = np.where(bigX[:,1]==0)[0]
         yesInjury = np.where(bigX[:,1]>0)[0]
         detectedFrac = np.mean(bigX[yesInjury,0] / bigX[yesInjury,1])
-        temp = pd.DataFrame({'clinTF':[clinTF],'sens':[sens],'FAR':[FAR],
-                             'rate':[int(injuryRate*100*365)],
-                             'detected%':[int(100*detectedFrac)],'noInjury':[len(noInjury)],'total':[int(np.sum(bigX[:,1]))],
-                             'mean':[np.mean(bigX[:,1])]})
+        temp = pd.DataFrame({'Seizures':[clinTFtxt],
+                             'Sensitivity (%)':[100*sens],
+                             'Injuries detected (%)':[int(100*detectedFrac)],
+                             'Injury-free (out of 10,000)':[len(noInjury)],
+                             'Total injuries':[int(np.sum(bigX[:,1]))],
+                             'Simulated Injury rate per 100 patient-yrs':[int(injuryRate*100*365)],
+                             'Average injuries per 100 patient-yrs':[10*np.mean(bigX[:,1])]})
         print(temp)
         df = pd.concat([df,temp])
     #print(df)
@@ -599,7 +620,7 @@ def sim_SUDEP_case(fn,reps=10000,numCPUs=9):
     
 def run_SUDEP_cases(sens,FAR,N,numCPUs,clinTF):
     # simulate N cases and summarize
-
+    clinTFtxt = 'C' if clinTF else 'C+E'
     if numCPUs>1:
         with Parallel(n_jobs=numCPUs, verbose=False) as par:
             temp = par(delayed(sim1SUDEP)(sens,FAR,clinTF) for _ in trange(N))
@@ -611,8 +632,9 @@ def run_SUDEP_cases(sens,FAR,N,numCPUs,clinTF):
     nearSUDEPnum = np.sum(bigX[:,1])
     percentPrevented = nearSUDEPnum / (nearSUDEPnum + SUDEPnum)
                         
-    df = pd.DataFrame({'clinTF':[clinTF],'sens':[sens],'FAR':[FAR],
-                            'SUDEP':SUDEPnum,'nearSUDEP':nearSUDEPnum,'%prevented':percentPrevented})
+    df = pd.DataFrame({'Seizures':[clinTFtxt],'Sensitivity':[100*sens],
+                        'Prevented':[percentPrevented],
+                        'SUDEP':[SUDEPnum],'nearSUDEP':[nearSUDEPnum]})
     print(df)
     return df
 
@@ -714,7 +736,7 @@ def run_full_cluster_cases(fn,N=10000,numCPUs=9):
     
 def run_cluster_cases(sens,FAR,N,numCPUs,clinTF):
     # simulate N cases and summarize
-
+    clinTFtxt = 'C' if clinTF else 'C+E'
     if numCPUs>1:
         with Parallel(n_jobs=numCPUs, verbose=False) as par:
             temp = par(delayed(sim1clusterCase)(sens,FAR,clinTF) for _ in trange(N))
@@ -740,7 +762,7 @@ def run_cluster_cases(sens,FAR,N,numCPUs,clinTF):
     the75drugs = theDrugs[szDiffInds[the75ind]]
     
                     
-    df = pd.DataFrame({'clinTF':[clinTF],'sens':[sens],'FAR':[FAR],
+    df = pd.DataFrame({'Type':[clinTFtxt],'sens':[sens],'FAR':[FAR],
                     'diffSz':[diffSz],'drugCount':[drugCount],
                     'noDrugs':[noDrugs],
                     'noSzChange':[noSzChange],'noSzChangeDrugs':[noSzChangeDrugs],
@@ -803,8 +825,8 @@ def sim1clusterCase(sens,FAR,clinTF):
         
 def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
     p = pd.read_csv(fn)
-    p1 = p[p.clinTF==True]
-    p2 = p[p.clinTF==False]
+    p1 = p[p.Seizure=='C']
+    p2 = p[p.Seizure=='C+E']
     f0 = p1[p1['FAR']==0]
     s5 = f0[f0['sens']==0.5]
     xOBS = s5['drugCount'].values
@@ -817,20 +839,20 @@ def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
     
     plt.figure(figsize=(10,10))
     plt.subplot(2,2,1)
-    plt.title('Cluster case, Sensitivity, ClinTF=False')
+    plt.title('Seizures: C+E')
     sns.color_palette("bright")
-    sns.scatterplot(data=p2,x='drugCount',y='diffSz',
+    sns.scatterplot(data=p2,x='drugCount',y='diffSz',color='k',
                     size='Sensitivity',size_norm=(.5,1),sizes=(10,100),legend=False)
     #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
     plt.grid(True)
-    plt.xlabel('Average drugs per patient')
+    #plt.xlabel('Average drugs per patient')
+    plt.xlabel('')
     plt.ylabel('Average seizures rescued per patient')
 
     plt.subplot(2,2,3)
-    plt.title('Cluster case, FAR, ClinTF=False')
-    sns.color_palette("bright")
+    plt.title('Seizures: C+E')
     sns.scatterplot(data=p2,x='drugCount',y='diffSz',
-                    palette=['black','purple','cyan','orange','red','blue','green'],
+                    palette='viridis',hue_norm=(0,1.2),hue_order=[0,.05,.1,.2,.5,1,2],
                     hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8,legend=False)
     #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
     plt.grid(True)
@@ -838,25 +860,30 @@ def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
     plt.ylabel('Average seizures rescued per patient')
     
     plt.subplot(2,2,2)
-    plt.title('Cluster case, sensitivity, ClinTF=True')
-    sns.scatterplot(data=p1,x='drugCount',y='diffSz',
+    plt.title('Seizures: C')
+    sns.scatterplot(data=p1,x='drugCount',y='diffSz',color='k',
                     size='Sensitivity',size_norm=(.5,1),sizes=(10,100))
-    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
-    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+    #plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5,label='Self-report')
+    plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5)
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', title='Sensitivity',borderaxespad=0)
     plt.grid(True)
-    plt.xlabel('Average drugs per patient')
-    plt.ylabel('Average seizures rescued per patient')
+    #plt.xlabel('Average drugs per patient')
+    #plt.ylabel('Average seizures rescued per patient')
+    plt.xlabel('')
+    plt.ylabel('')
     
     plt.subplot(2,2,4)
-    plt.title('Cluster case, FAR, ClinTF=True')
+    plt.title(' Seizures: C')
     sns.scatterplot(data=p1,x='drugCount',y='diffSz',
-                    palette=['black','purple','cyan','orange','red','blue','green'],
-                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8)
-    plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
-    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+                    palette='viridis',hue_norm=(0,1.2),hue_order=[0,.05,.1,.2,.5,1,2],
+                    hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8,legend='full')
+    #plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5,label='Self-report')
+    plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5)
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left',title='FAR', borderaxespad=0)
     plt.grid(True)
     plt.xlabel('Average drugs per patient')
-    plt.ylabel('Average seizures rescued per patient')
+    #plt.ylabel('Average seizures rescued per patient')
+    plt.ylabel('')
     
     if fign != '':
         plt.savefig(fign,dpi=300)
