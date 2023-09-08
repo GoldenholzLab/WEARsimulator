@@ -268,12 +268,13 @@ def make_full_RCT_sets(drawingOn,prefix,sensLIST,farLIST,inflaterLIST=[2/3],mini
 # if rate[1] > (½) rate[0], add med with 20% efficacy - but only do it 80% of the time because of conservative clinician
 ### Model of sz freedom (Chen et al 2018), and patterns of sz freedom (Brodie et al 2012)
 
-def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,NOFIG=False,fn='',clinTF=True):
+def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,NOFIG=False,fn='',clinTF=True,biggerCSV=False,doDISCOUNT=True):
     if NOFIG==False:
         plt.subplots(3,3,sharex=True,sharey=True,figsize=(12,12))
     counter = 0
     df = pd.DataFrame()
-    
+    df2 = pd.DataFrame()
+    interval_count = 39 # this is how many intervals from 10 years of 3 month visits gets
     for si,sens in enumerate(tqdm(sLIST,desc='sensitivity')):
         for fi,FAR in enumerate(tqdm(fLIST,desc='FAR',leave=False)):
     
@@ -283,14 +284,23 @@ def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,N
             counter+=1
             if NOFIG==False:
                 plt.subplot(3,3,counter)
-            szfree, szCounts, drugCounts = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater)
-            df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/39],'meanSz':[np.median(szCounts)/(39*3)]})])
-    
+            szfree, szCounts, drugCounts = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT)
+            df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/interval_count],'meanSz':[np.median(szCounts)/(interval_count*3)]})])
+            if biggerCSV==True:
+                newd = pd.DataFrame({'sens':[sens]*N,
+                                     'FAR':[FAR]*N,
+                                     'szfree':[szfree]*N,
+                                     'meanDrug':drugCounts/interval_count,
+                                     'meanSz':szCounts/(interval_count*3)})
+                df2 = pd.concat([df2,newd])
     if NOFIG==False:
         plt.show()
     print(df)
     if fn != '':
-        df.to_csv(fn,index=False)
+        if biggerCSV==True:
+            df2.to_csv(fn,index=False)
+        else:
+            df.to_csv(fn,index=False)
     return df
 
 def plot_the_clinic_sets(f1,f2,fn):
@@ -310,7 +320,7 @@ def plot_the_clinic_sets(f1,f2,fn):
     plt.figure(figsize=(10,10))
     
     plt.subplot(2,2,1)
-    plt.title('Seizures: Clinical + Electrographic')
+    plt.title('Clinical + Electrographic (sensitivity highlighted)')
     sns.color_palette("bright")
     sns.scatterplot(data=p2,x='meanDrug',y='meanSz',hue='Sensitivity',palette='flare',hue_norm=(0.5,1),
                     size='Sensitivity',size_norm=(.5,1),sizes=(10,100),legend=False)
@@ -321,7 +331,7 @@ def plot_the_clinic_sets(f1,f2,fn):
     plt.xlabel('')
 
     plt.subplot(2,2,2)
-    plt.title('Seizures: Clinical')
+    plt.title('Clinical (sensitivity highlighted)')
     sns.scatterplot(data=p1,x='meanDrug',y='meanSz',hue='Sensitivity',palette='flare',hue_norm=(0.5,1),
                     size='Sensitivity',size_norm=(.5,1),sizes=(10,100))
     plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5)
@@ -334,7 +344,7 @@ def plot_the_clinic_sets(f1,f2,fn):
     plt.ylabel('')
     
     plt.subplot(2,2,3)
-    plt.title('Seizures: Clinical + Electrographic')
+    plt.title('Clinical + Electrographic (FAR highlighted)')
     sns.color_palette("bright")
     #palette=['black','purple','cyan','orange','red','blue','green'],
     sns.scatterplot(data=p2,x='meanDrug',y='meanSz',palette='flare',hue_norm=(0,1.1),
@@ -346,7 +356,7 @@ def plot_the_clinic_sets(f1,f2,fn):
     plt.ylabel('Average seizures per month per patient')
 
     plt.subplot(2,2,4)
-    plt.title('Seizures: Clinical')
+    plt.title('Clinical (FAR highlighted)')
     sns.scatterplot(data=p1,x='meanDrug',y='meanSz',palette='flare',hue_norm=(0,1.1),
                     style='False alarm rate',hue='False alarm rate',hue_order=flist,
                     s=100,alpha=0.8,legend='full')
@@ -369,7 +379,7 @@ def plot_the_clinic_sets(f1,f2,fn):
 
 
     
-def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3):
+def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3,doDISCOUNT=True):
     # define some constants
     clinic_interval = 30*3     # 3 months between clinic visits
     yrs = 10
@@ -378,7 +388,7 @@ def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3
     # run each patient
     if numCPUs>1:
         with Parallel(n_jobs=numCPUs, verbose=False) as par:
-            temp = par(delayed(sim1clinic)(sens,FAR,clinic_interval,clinTF,L,inflater) for _ in range(N))
+            temp = par(delayed(sim1clinic)(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT) for _ in range(N))
     else:
         temp = [ sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater) for _ in trange(N)]
 
@@ -403,7 +413,7 @@ def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3
         #return np.mean(szFree),trueCount/toMonths,drugCountSensor/toMonths
         return np.mean(szFree),trueCount,drugCountSensor
 
-def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater):
+def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
     # simulate 1 patient all the way through
     
     # constants
@@ -412,8 +422,13 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater):
     drugStrengthLO = 0.1
     drugStrengthHI = 0.2
     maxMEDS = 6.5
-    doDISCOUNT = True
-
+    #doDISCOUNT = True
+    ### ADDED: chen et al indirectly tells us what percentage of patients
+    #  will even TRY to get additional med added. Looking at the full table
+    #  and assuming q3 months over roughly 10 years, this gives roughly 1.5%
+    #  chance at any given visit of med increase.
+    addChance = 0.3
+    
     ### Model of sz freedom (Chen et al 2018) (note we use percentage of total cohort % values)
     ### also Brodie et al 2012
     r = np.random.random()
@@ -839,7 +854,7 @@ def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
     
     plt.figure(figsize=(10,10))
     plt.subplot(2,2,1)
-    plt.title('Seizures: C+E')
+    plt.title('Clinical + Electrographic (sensitivity highlighted)')
     sns.color_palette("bright")
     sns.scatterplot(data=p2,x='drugCount',y='diffSz',color='k',
                     size='Sensitivity',size_norm=(.5,1),sizes=(10,100),legend=False)
@@ -850,17 +865,17 @@ def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
     plt.ylabel('Average seizures rescued per patient')
 
     plt.subplot(2,2,3)
-    plt.title('Seizures: C+E')
+    plt.title('Clinical + Electrographic (FAR highlighted)')
     sns.scatterplot(data=p2,x='drugCount',y='diffSz',
                     palette='viridis',hue_norm=(0,1.2),hue_order=[0,.05,.1,.2,.5,1,2],
                     hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8,legend=False)
     #plt.plot(xOBS,yOBS,'xr',markersize=10,alpha=0.5,label='Self-report')
     plt.grid(True)
-    plt.xlabel('Average drugs per patient')
+    plt.xlabel('Average rescue meds per patient')
     plt.ylabel('Average seizures rescued per patient')
     
     plt.subplot(2,2,2)
-    plt.title('Seizures: C')
+    plt.title('Clinical (sensitivity highlighted)')
     sns.scatterplot(data=p1,x='drugCount',y='diffSz',color='k',
                     size='Sensitivity',size_norm=(.5,1),sizes=(10,100))
     #plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5,label='Self-report')
@@ -873,7 +888,7 @@ def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
     plt.ylabel('')
     
     plt.subplot(2,2,4)
-    plt.title(' Seizures: C')
+    plt.title('Clinical (FAR highlighted)')
     sns.scatterplot(data=p1,x='drugCount',y='diffSz',
                     palette='viridis',hue_norm=(0,1.2),hue_order=[0,.05,.1,.2,.5,1,2],
                     hue='False alarm rate',style='False alarm rate',s=100,alpha=0.8,legend='full')
@@ -881,7 +896,7 @@ def draw_cluster_summary(fn='clusterCase10k.csv',fign=''):
     plt.plot(xOBS,yOBS,'xr',markersize=20,alpha=0.5)
     plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left',title='FAR', borderaxespad=0)
     plt.grid(True)
-    plt.xlabel('Average drugs per patient')
+    plt.xlabel('Average rescue meds per patient')
     #plt.ylabel('Average seizures rescued per patient')
     plt.ylabel('')
     
