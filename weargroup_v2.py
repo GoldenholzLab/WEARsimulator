@@ -278,8 +278,8 @@ def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,N
     for si,sens in enumerate(tqdm(sLIST,desc='sensitivity')):
         for fi,FAR in enumerate(tqdm(fLIST,desc='FAR',leave=False)):
     
-    #for si,sens in enumerate(sLIST):
-    #    for fi,FAR in enumerate(fLIST):
+            #for si,sens in enumerate(sLIST):
+            #    for fi,FAR in enumerate(fLIST):
     
             counter+=1
             if NOFIG==False:
@@ -413,7 +413,7 @@ def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3
         #return np.mean(szFree),trueCount/toMonths,drugCountSensor/toMonths
         return np.mean(szFree),trueCount,drugCountSensor
 
-def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
+def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,findSteady=False):
     # simulate 1 patient all the way through
     
     # constants
@@ -450,7 +450,7 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
     #successLIST = [0,.72,.18,.07,.02,0.01,0.01,0]
     
     # First make 1 patient true_e and true_c
-    sampRATE = 6
+    sampRATE = 1
     howmanydays = L*clinic_interval
     true_e_diary, true_clin_diary = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=sampRATE*clinic_interval)
 
@@ -460,6 +460,7 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
         X = true_e_diary.copy().astype('int')
     sensorXdrugged = X.copy()
     trueXdrugged = X.copy()
+
     
     # Now start looping along
     decisionList = np.zeros(L)
@@ -471,9 +472,11 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
     sensorXdrugged[0] = add_sens_and_FAR_onesamp(sensitivity=sens,FAR=FAR,X=X[0],downsampleRATE=clinic_interval,inflater=inflater)
     if doDISCOUNT:
         sensorXdrugged[0] = np.max([0,sensorXdrugged[0]-FAR*clinic_interval])
+
     for i in range(1,L):
         # apply drugs to the sample first
         thisSamp = X[i]
+        
         for Dcount in range(1,7):
             if drugCount==Dcount:
                 thisSamp = applyDrugOneSample(samp=thisSamp,efficacy=drugStrengthLO)
@@ -498,16 +501,21 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
             # has this been good for 2 years?
             if nochangeCounter==twoyears:
                 # then decrease something
-                if np.floor(drugCount)==drugCount:
-                    drugCount = np.max([0,drugCount-0.5])
-                else:
-                    drugCount = np.floor(drugCount)
+                nochangeCounter=0
+                if drugCount >=1:       # do nothing at all if less than 1 drug
+                    drugCount -= 0.5
+                    if drugCount<1:
+                        drugCount = 1
+                
+                #since we decreased meds, szfreedom from prior drug change goes away
+                szFree[i:0] = 0
                 
         else:
             # things remain bad
             nochangeCounter=0
             # ready to increase something?
-            if np.random.random()<addChance:
+            # if we have no drugs on board, always do something. Otherwise SOMETIMES do something.
+            if drugCount==0 or np.random.random()<addChance:
                 
                 if drugCount==0:
                     drugCount=1
@@ -519,6 +527,7 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
                 else:
                     drugCount += 0.5
                     newDrug = (np.floor(drugCount)==drugCount)
+
                 if newDrug:
                     # we have added a new drug now
                     # will this make us sz free?
@@ -530,16 +539,48 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True):
                             # delayed sz free sustained
                             delayT = np.random.randint(4)
                             istart = np.min([i+delayT,L-1])
-                            szFree[istart:]
-                        else:
-                            # fluctuating sz freedom or no szfreedom
+                            szFree[istart:] = 1
+                        elif patternABCD==2:
+                            # fluctuating sz freedom
                             imax = np.min([i + 4,L])
                             szFree[i:imax] = 1
+                        else: # no szFreedom
+                            szFree[i:] = 0
                             
         
         decisionList[i] = drugCount
-    
-    vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree))]
+
+    if findSteady:
+        # figure out what the steady state was, then how long it took to get there, and return that
+        SS_drugCount = np.median((decisionList[int(L*0.66):]))    # usual value in 1/3 of visits
+
+        # I want to view 12 month intervals to smooth results a little
+        windowSize = 12 / clinic_interval
+        windstepSize = 1
+        # create a window of ones with the same size as the window size
+        window = np.ones(windowSize) / windowSize
+        # use np.convolve with mode='valid' to get the moving window average
+        movingAverage = np.convolve(decisionList, window, mode='valid')
+        # pad the movingAverage with zeros at both ends
+        padSize = (windowSize - stepSize) # calculate the padding size
+        movingAverage = np.pad(movingAverage, (padSize,0), mode='constant') # pad with zeros
+
+        # find the locations when the moving average is close to the steady state value
+        w = np.where(abs(movingAverage - SS_drugCount) < 0.25 )[0]
+        if w == []:
+            how_long = np.inf
+        else:
+            how_long = w[0]
+        plt.plot((decisionList),label='meds')
+        #plt.plot(true_clin_diary,label='true szs')
+        plt.plot(trueXdrugged,label='true-drugged')
+        plt.plot(sensorXdrugged,label='sensor-drugged')
+        plt.legend()
+        #plt.ylim([0,6])
+        vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree)), how_long]
+
+    else:
+        vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree))]
 
     return vals
 
