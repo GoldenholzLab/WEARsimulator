@@ -13,6 +13,7 @@ import seaborn as sns
 import pandas as pd
 from numpy.random import default_rng
 import scipy.stats as stats
+from scipy.ndimage import median_filter
 
 #np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)  
 
@@ -268,7 +269,8 @@ def make_full_RCT_sets(drawingOn,prefix,sensLIST,farLIST,inflaterLIST=[2/3],mini
 # if rate[1] > (½) rate[0], add med with 20% efficacy - but only do it 80% of the time because of conservative clinician
 ### Model of sz freedom (Chen et al 2018), and patterns of sz freedom (Brodie et al 2012)
 
-def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,NOFIG=False,fn='',clinTF=True,biggerCSV=False,doDISCOUNT=True):
+def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,NOFIG=False,fn='',
+                 clinTF=True,biggerCSV=False,doDISCOUNT=True,findSteady=False,numCPUs=9,yrs=10):
     if NOFIG==False:
         plt.subplots(3,3,sharex=True,sharey=True,figsize=(12,12))
     counter = 0
@@ -284,14 +286,20 @@ def do_some_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,N
             counter+=1
             if NOFIG==False:
                 plt.subplot(3,3,counter)
-            szfree, szCounts, drugCounts = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT)
-            df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/interval_count],'meanSz':[np.median(szCounts)/(interval_count*3)]})])
+            if findSteady==True:
+                szfree, szCounts, drugCounts, how_long = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT,findSteady=findSteady,numCPUs=numCPUs,yrs=yrs)
+                df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/interval_count],'meanSz':[np.median(szCounts)/(interval_count*3)],'how_long':[np.median(how_long)]})])
+            else:    
+                szfree, szCounts, drugCounts = show_me_set(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT,findSteady=findSteady,numCPUs=numCPUs,yrs=yrs)
+                df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/interval_count],'meanSz':[np.median(szCounts)/(interval_count*3)]})])
+                how_long = np.zeros(N)
             if biggerCSV==True:
                 newd = pd.DataFrame({'sens':[sens]*N,
                                      'FAR':[FAR]*N,
                                      'szfree':[szfree]*N,
                                      'meanDrug':drugCounts/interval_count,
-                                     'meanSz':szCounts/(interval_count*3)})
+                                     'meanSz':szCounts/(interval_count*3),
+                                     'how_long':how_long})
                 df2 = pd.concat([df2,newd])
     if NOFIG==False:
         plt.show()
@@ -379,24 +387,28 @@ def plot_the_clinic_sets(f1,f2,fn):
 
 
     
-def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3,doDISCOUNT=True):
+def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3,doDISCOUNT=True,findSteady=False,yrs=10):
     # define some constants
     clinic_interval = 30*3     # 3 months between clinic visits
-    yrs = 10
+    #yrs = 10
     L = int(yrs*12*30 / clinic_interval)
     
     # run each patient
     if numCPUs>1:
         with Parallel(n_jobs=numCPUs, verbose=False) as par:
-            temp = par(delayed(sim1clinic)(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT) for _ in range(N))
+            temp = par(delayed(sim1clinic)(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT,findSteady) for _ in range(N))
     else:
-        temp = [ sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater) for _ in trange(N)]
+        temp = [ sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT,findSteady) for _ in trange(N)]
 
     bigX = np.array(temp,dtype=int)
     trueCount = bigX[:,0]
     sensorCount = bigX[:,1]
     drugCountSensor = bigX[:,2]
     szFree =bigX[:,3]
+    if findSteady==True:
+        how_long = bigX[:,4]
+    else:
+        how_long = np.array([])
     
     toMonths = L * 3
     if noFig==False:
@@ -411,7 +423,10 @@ def show_me_set(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3
     else:
         # these are normalized.
         #return np.mean(szFree),trueCount/toMonths,drugCountSensor/toMonths
-        return np.mean(szFree),trueCount,drugCountSensor
+        if findSteady==True:
+            return np.mean(szFree),trueCount,drugCountSensor,how_long
+        else:
+            return np.mean(szFree),trueCount,drugCountSensor
 
 def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,findSteady=False):
     # simulate 1 patient all the way through
@@ -555,28 +570,30 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,findSt
         SS_drugCount = np.median((decisionList[int(L*0.66):]))    # usual value in 1/3 of visits
 
         # I want to view 12 month intervals to smooth results a little
-        windowSize = 12 / clinic_interval
-        windstepSize = 1
+        windowSize = 12 * 30 / clinic_interval
+
+        moving_median = median_filter(decisionList, size=int(windowSize))
+        #windowStepSize = 1
         # create a window of ones with the same size as the window size
-        window = np.ones(windowSize) / windowSize
+        #window = np.full(int(windowSize), 1.0/windowSize)
         # use np.convolve with mode='valid' to get the moving window average
-        movingAverage = np.convolve(decisionList, window, mode='valid')
+        #movingAverage = np.convolve(decisionList, window, mode='valid')
         # pad the movingAverage with zeros at both ends
-        padSize = (windowSize - stepSize) # calculate the padding size
-        movingAverage = np.pad(movingAverage, (padSize,0), mode='constant') # pad with zeros
+        #padSize = int(windowSize - windowStepSize) # calculate the padding size
+        #movingAverage = np.pad(movingAverage, (padSize,0), mode='constant') # pad with zeros
 
         # find the locations when the moving average is close to the steady state value
-        w = np.where(abs(movingAverage - SS_drugCount) < 0.25 )[0]
-        if w == []:
-            how_long = np.inf
+        w = np.where(abs(moving_median - SS_drugCount) < 0.5 )[0]
+        if len(w)==0:
+            how_long = 10000
         else:
-            how_long = w[0]
+            how_long = (clinic_interval / 30) * w[0] + 12
         plt.plot((decisionList),label='meds')
         #plt.plot(true_clin_diary,label='true szs')
         plt.plot(trueXdrugged,label='true-drugged')
         plt.plot(sensorXdrugged,label='sensor-drugged')
         plt.legend()
-        #plt.ylim([0,6])
+        plt.ylim([0,6])
         vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree)), how_long]
 
     else:
@@ -770,7 +787,7 @@ def sim1SUDEP(sens,FAR,clinTF):
                 else:
                     # the sensor missed this one
                     SUDEPcount += 1
-             
+
     did_I_die = (SUDEPcount>0) + 0   
     return did_I_die, NEARsudep
 

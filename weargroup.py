@@ -12,7 +12,7 @@ import pandas as pd
 from numpy.random import default_rng
 import scipy.stats as stats
 
-np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)  
+#np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)  
 
 def add_FAR(x,FAR):
     # INPUTS:
