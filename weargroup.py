@@ -33,13 +33,16 @@ def add_FAR(x,FAR):
         
         return x + added_sz
 
-def make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=1):
+def make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=1,
+                obs_sensitivity=0.5, obs_FAR=0.0):
     # INPUTS:
     #  sampRATE = samples per day
     #  howmanydays = how many days to generate
     #  makeOBS =[default False] True: make observed_dairy, False: don't    
     #  downsample_rate =[default 1] - downsample output by how much?
-    
+    #  obs_sensitivity [default 0.5] what fraction of clin szs are observed?
+    #  obs_FAR [default 0.0] what rate of false alarms per days is used?
+
     # OUTPUTS:
     #  true_e_diary - true electrographic seizures (including clinical)
     #  true_clin_diary - true clinical only seizures
@@ -52,8 +55,8 @@ def make_multi_diaries(sampRATE,howmanydays,makeOBS=False,downsample_rate=1):
     # CONSTANTS
     esz_vs_all_sz_mean = 0.39   # Neurovista result
     esz_vs_all_sz_std = 0.22    # Neurovista result
-    obs_sensitivity = 0.5       # Elgar 2018
-    obs_FAR = 0.0               # ?? "we've got to start somewhere"
+    #obs_sensitivity = 0.5       # Elgar 2018
+    #obs_FAR = 0.0               # ?? "we've got to start somewhere"
     
     # generate a monthly seizure frequency that is realistic
     mSF = get_mSF( requested_msf=-1 )

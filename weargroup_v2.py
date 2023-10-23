@@ -432,7 +432,7 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,findSt
     # simulate 1 patient all the way through
     
     # constants
-    addChance = .8
+    #addChance = .8
     twoyears = 8        # 8 visits 3 months apart = 2 years...
     drugStrengthLO = 0.1
     drugStrengthHI = 0.2
@@ -587,13 +587,18 @@ def sim1clinic(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,findSt
         if len(w)==0:
             how_long = 10000
         else:
-            how_long = (clinic_interval / 30) * w[0] + 12
-        plt.plot((decisionList),label='meds')
-        #plt.plot(true_clin_diary,label='true szs')
-        plt.plot(trueXdrugged,label='true-drugged')
-        plt.plot(sensorXdrugged,label='sensor-drugged')
-        plt.legend()
-        plt.ylim([0,6])
+            how_long = w[0]
+        debugPLOT = False
+        if debugPLOT == True:
+            print(f'SS = {SS_drugCount} clin_int ={clinic_interval} {w[0]}')
+            plt.plot(np.arange(len(decisionList)),decisionList,label='meds')
+            #plt.plot(true_clin_diary,label='true szs')
+            plt.plot(np.arange(len(trueXdrugged)),trueXdrugged,label='true-drugged')
+            plt.plot(np.arange(len(moving_median)),moving_median+.1,label='median filtered')
+            
+            plt.plot(sensorXdrugged,label='sensor-drugged')
+            plt.legend()
+            plt.ylim([0,7])
         vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree)), how_long]
 
     else:
