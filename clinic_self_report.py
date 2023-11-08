@@ -4,15 +4,15 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 #import scipy
 from tqdm.notebook import tqdm,trange
-from weargroup import make_multi_diaries
 from weargroup_v2 import add_sens_and_FAR_onesamp,applyDrugOneSample
 from scipy.ndimage import median_filter
 from joblib import Parallel, delayed
+from realSim import get_mSF, simulator_base,downsample
 
 def drawResult_from_clinic_self_report(N=100000):
     #N = 100000
     #N = 1000
-    fn =f'clinicMonster_selfrep_v2with{N}.csv'
+    fn =f'clinicMonster_selfrep_v3with{N}.csv'
 
     #fn = 'clinicMonster_selfRep_1FPmonthly.csv'
     #fn = 'clinicMonster_selfrep_v2with.csv'
@@ -36,15 +36,17 @@ def drawResult_from_clinic_self_report(N=100000):
     plt.xlabel('')
     plt.ylabel('Daily # meds per patient')
     plt.subplot(2,2,2)
-    ax2=sns.boxenplot(data=df,x='sens',y='meanSz',hue='sens',palette=pal,
-                    legend=[.1,.2,.3,.4,.5,.6,.7,.8,.9,1])
-    plt.legend(loc='center left', title='Sensitivity',bbox_to_anchor=(1, 0.5))
+    ax=plt.gca()
+    ax.set(xscale="log", yscale="log")
+    ax2=sns.boxenplot(data=df,x='sens',y='meanSz',hue='sens',palette=pal, legend=[.1,.2,.3,.4,.5,.6,.7,.8,.9,1])
+    plt.legend(loc='center left', title='Sensitivity (SNR)',bbox_to_anchor=(1, 0.5))
     
     #sns.violinplot(data=df,x='sens',y='meanSz')
     plt.plot([0,1,2,3,4,5,6,7,8,9],df_grouped['meanSz'],linestyle=':',color='r',marker='o')
-    plt.ylim(0,30)
+    plt.ylim(0,15)
     plt.ylabel('Ave. sz./mo. per patient')
     plt.xlabel('')
+    plt.grid(visible=True)
     plt.xticks([])
     plt.subplot(2,2,3)
     df.loc[df.how_long==10000,'how_long'] = np.NaN
@@ -56,59 +58,81 @@ def drawResult_from_clinic_self_report(N=100000):
     _lg.remove()
     plt.plot([0,1,2,3,4,5,6,7,8,9],df_grouped['how_long'],linestyle=':',color='r',marker='o')
     #plt.title('Sensitivity vs. how long until med stability')
-    plt.xlabel('')
-    plt.xticks([])
+    #plt.xlabel('')
+    #plt.xticks([])
     plt.ylabel('Months till stable med dose')
+    plt.xlabel('Sensitivity (SNR)')
 
     plt.subplot(2,2,4)
     # Group the dataframe by sens and compute the mean of meanSz
 
-    ax4 = sns.scatterplot(data=df_grouped,size='sens',hue='sens',x='meanDrug',y='meanSz',
+    ax4 = sns.scatterplot(data=df_grouped,size='sens',hue='sens',y='meanDrug',x='meanSz',
                         palette=pal)
     _lg = ax4.get_legend()
     _lg.remove()
     # Use curve_fit to fit the function to your data
     
-    some_x = np.array(df_grouped.meanDrug)[::-1]
-    some_y = np.array(df_grouped.meanSz)[::-1]
+    some_y = np.array(df_grouped.meanDrug)[::-1]
+    some_x = np.array(df_grouped.meanSz)[::-1]
     #popt, pcov = curve_fit(exp_curve_func, xdata=some_x[::4], ydata=some_y[::4])
     #fit_x = np.linspace(np.min(df_grouped.meanDrug),1.9, 30)
-    model = np.poly1d(np.polyfit(some_x, some_y, 3))
-    polyline = np.linspace(np.min(df_grouped.meanDrug),1.9, 30)
+    model = np.poly1d(np.polyfit(some_x, some_y, 2))
+    polyline = np.linspace(np.min(df_grouped.meanSz),14, 30)
     plt.plot(polyline, model(polyline),'r:')
     #plt.plot(fit_x,exp_curve_func(fit_x, *popt), 'r:')
     #plt.legend(loc='center left', title='Sensitivity',bbox_to_anchor=(1, 0.5))
-    plt.ylim(0,8)
-    plt.xlim(1.7,1.9)
-    plt.xlabel('Daily number of meds per patient')
-    plt.ylabel('ave. sz./mo. per patient')
+    plt.xlim(0,15)
+    plt.ylim(0,4)
+    plt.ylabel('Daily number of meds per patient')
+    plt.xlabel('ave. sz./mo. per patient')
     # Print the result
     print(df_grouped)
+    plt.savefig('Fig2-self-report.tif',bbox_inches='tight',dpi=300)
     plt.show()
-
+    
     plt.figure(figsize=(4,4))
-    sns.scatterplot(data=df_grouped,size='sens',hue='sens',x='meanDrug',y='meanSz',
-                        palette=pal, legend=[.1,.2,.3,.4,.5,.6,.7,.8,.9,1])
-    plt.legend(loc='center left', title='Sensitivity',bbox_to_anchor=(1, 0.5))
+    sns.scatterplot(data=df_grouped,size='sens',hue='sens',y='meanDrug',x='meanSz',
+                        palette=pal)
+    plt.legend(loc='center left', title='Sensitivity (SNR)',bbox_to_anchor=(1, 0.5))
+    
     # Use curve_fit to fit the function to your data
     
-    some_x = np.array(df_grouped.meanDrug)[::-1]
-    some_y = np.array(df_grouped.meanSz)[::-1]
+    some_y = np.array(df_grouped.meanDrug)[::-1]
+    some_x = np.array(df_grouped.meanSz)[::-1]
     #popt, pcov = curve_fit(exp_curve_func, xdata=some_x[::4], ydata=some_y[::4])
     #fit_x = np.linspace(np.min(df_grouped.meanDrug),1.9, 30)
-    model = np.poly1d(np.polyfit(some_x, some_y, 3))
-    polyline = np.linspace(np.min(df_grouped.meanDrug),1.9, 30)
+    model = np.poly1d(np.polyfit(some_x, some_y, 2))
+    polyline = np.linspace(np.min(df_grouped.meanSz),14, 30)
     plt.plot(polyline, model(polyline),'r:')
     #plt.plot(fit_x,exp_curve_func(fit_x, *popt), 'r:')
     #plt.legend(loc='center left', title='Sensitivity',bbox_to_anchor=(1, 0.5))
-    plt.ylim(0,8)
-    plt.xlim(1.7,1.9)
-    plt.xlabel('Daily number of meds per patient')
-    plt.ylabel('ave. sz./mo. per patient')
+    plt.xlim(0,15)
+    plt.ylim(0,4)
+    plt.ylabel('Daily number of meds per patient')
+    plt.xlabel('ave. sz./mo. per patient')
+    plt.show()
+    plt.figure(figsize=(4,4))
+    ax = plt.gca()
+    ax.set(xscale="log", yscale="log")
+    ax = sns.scatterplot(data=df_grouped,size='sens',hue='sens',x='sens',y='meanSz',
+                        palette=pal)
+    some_y = np.array(df_grouped.meanSz)[::-1]
+    some_x = np.array(df_grouped.sens)[::-1]
+    #model = np.poly1d(np.polyfit(some_x, some_y, 3))
+    #polyline = np.linspace(np.min(df_grouped.meanSz),13, 30)
+    #ax.set_ylim(bottom=0)
+    #plt.plot(np.log10(some_x),np.log10(some_y),'r:')
+    plt.plot(some_x,some_y,'r:')
+    #plt.ylim(0,3)
+    #plt.xlim(0,1)
+    plt.grid(visible=True)
+    plt.legend(loc='center left', title='Sensitivity (SNR)',bbox_to_anchor=(1, 0.5))
+    plt.ylabel('Mean sz/month per patient')
+    plt.xlabel('Sensitivity (SNR)')
     plt.show()
 
 def do_some_self_report_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.1],N=10000,NOFIG=False,fn='',
-                clinTF=True,biggerCSV=False,doDISCOUNT=True,findSteady=False,numCPUs=9,yrs=10):
+                            clinTF=True,biggerCSV=False,doDISCOUNT=True,findSteady=False,numCPUs=9,yrs=10):
     if NOFIG==False:
         plt.subplots(3,3,sharex=True,sharey=True,figsize=(12,12))
     counter = 0
@@ -125,10 +149,10 @@ def do_some_self_report_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.
             if NOFIG==False:
                 plt.subplot(3,3,counter)
             if findSteady==True:
-                szfree, szCounts, drugCounts, how_long = show_me_set_self_report(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT,findSteady=findSteady,numCPUs=numCPUs,yrs=yrs)
+                szfree, szCounts, drugCounts, how_long = show_me_set_self_report(sens=sens,FAR=FAR,N=N,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT,findSteady=findSteady,numCPUs=numCPUs,yrs=yrs)
                 df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/interval_count],'meanSz':[np.median(szCounts)/(interval_count*3)],'how_long':[np.median(how_long)]})])
             else:    
-                szfree, szCounts, drugCounts = show_me_set_self_report(sens=sens,FAR=FAR,N=N,clinTF=clinTF,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT,findSteady=findSteady,numCPUs=numCPUs,yrs=yrs)
+                szfree, szCounts, drugCounts = show_me_set_self_report(sens=sens,FAR=FAR,N=N,showTF=False,noFig=NOFIG,inflater=inflater,doDISCOUNT=doDISCOUNT,findSteady=findSteady,numCPUs=numCPUs,yrs=yrs)
                 df = pd.concat([df,pd.DataFrame({'sens':[sens],'FAR':[FAR],'szfree':[szfree],'meanDrug':[np.median(drugCounts)/interval_count],'meanSz':[np.median(szCounts)/(interval_count*3)]})])
                 how_long = np.zeros(N)
             if biggerCSV==True:
@@ -150,7 +174,7 @@ def do_some_self_report_sets(inflater=2/3,sLIST = [1,.9,.8],fLIST= [ 0, 0.05, 0.
     return df
 
 
-def show_me_set_self_report(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,inflater=2/3,doDISCOUNT=True,findSteady=False,yrs=10):
+def show_me_set_self_report(sens,FAR,N,numCPUs=9,showTF=True,noFig=False,inflater=2/3,doDISCOUNT=True,findSteady=False,yrs=10):
     # define some constants
     clinic_interval = 30*3     # 3 months between clinic visits
     #yrs = 10
@@ -159,9 +183,9 @@ def show_me_set_self_report(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,
     # run each patient
     if numCPUs>1:
         with Parallel(n_jobs=numCPUs, verbose=False) as par:
-            temp = par(delayed(sim1clinicSR)(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT,findSteady) for _ in range(N))
+            temp = par(delayed(sim1clinicSR)(sens,FAR,clinic_interval,L,inflater,doDISCOUNT,findSteady) for _ in range(N))
     else:
-        temp = [ sim1clinicSR(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT,findSteady) for _ in trange(N)]
+        temp = [ sim1clinicSR(sens,FAR,clinic_interval,L,inflater,doDISCOUNT,findSteady) for _ in trange(N)]
 
     bigX = np.array(temp,dtype=int)
     trueCount = bigX[:,0]
@@ -191,7 +215,7 @@ def show_me_set_self_report(sens,FAR,N,clinTF,numCPUs=9,showTF=True,noFig=False,
         else:
             return np.mean(szFree),trueCount,drugCountSensor
 
-def sim1clinicSR(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,findSteady=False):
+def sim1clinicSR(sens,FAR,clinic_interval,L,inflater,doDISCOUNT=True,findSteady=False):
     # simulate 1 patient all the way through
     
     # constants
@@ -230,13 +254,10 @@ def sim1clinicSR(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,find
     # First make 1 patient true_e and true_c
     sampRATE = 1
     howmanydays = L*clinic_interval
-    true_e_diary, true_clin_diary = make_multi_diaries(sampRATE,howmanydays,makeOBS=False,
-                    downsample_rate=sampRATE*clinic_interval, obs_sensitivity=sens, obs_FAR=FAR)
+    true_clin_diary = make_diaries_CLIN(sampRATE,howmanydays,downsample_rate=sampRATE*clinic_interval,
+                                     obs_sensitivity=sens, obs_FAR=FAR)
 
-    if clinTF==True:
-        X = true_clin_diary.copy().astype('int')
-    else:
-        X = true_e_diary.copy().astype('int')
+    X = true_clin_diary.copy().astype('int')
     sensorXdrugged = X.copy()
     trueXdrugged = X.copy()
 
@@ -369,3 +390,45 @@ def sim1clinicSR(sens,FAR,clinic_interval,clinTF,L,inflater,doDISCOUNT=True,find
         vals = [ np.sum(trueXdrugged), np.sum(sensorXdrugged), np.sum(np.floor(decisionList)) , (0+np.any(szFree))]
 
     return vals
+
+def make_diaries_CLIN(sampRATE,howmanydays,downsample_rate=1,
+                obs_sensitivity=0.5, obs_FAR=0.0):
+    # modified version that does not account for electrographic seizures at all
+    # does not report the self-reported version - only makes the clinically true diary
+    # INPUTS:
+    #  sampRATE = samples per day
+    #  howmanydays = how many days to generate
+    #  downsample_rate =[default 1] - downsample output by how much?
+    #  obs_sensitivity [default 0.5] what fraction of clin szs are observed?
+    #  obs_FAR [default 0.0] what rate of false alarms per days is used?
+
+    # OUTPUTS:
+    #  true_clin_diary - true clinical only seizures
+    #  observed_clin_diary - observed clinical only seizures
+    #
+    #
+    # USAGE:
+    #true_clin_diary  =  make_diaries_CLIN(sampRATE,howmanydays)
+    
+    # CONSTANTS
+    #obs_sensitivity = 0.5       # Elgar 2018
+    #obs_FAR = 0.0               # ?? "we've got to start somewhere"
+    
+    # generate a monthly seizure frequency that is realistic
+    mSF = get_mSF( requested_msf=-1 )
+    
+    # increase true SF to account for under-reporting
+    mSF /= obs_sensitivity
+    
+    # decrease true SF to account for over-reporting
+    mSF /= (1 + obs_FAR) 
+
+    
+    # generate true electrographic diary (which includes true clin szs too)
+    true_clin_diary = simulator_base(sampRATE=sampRATE,number_of_days=howmanydays,defaultSeizureFreq=mSF)
+    
+    # downsample true diaries if requested (ie downsample_rate>1)
+    if downsample_rate>1:
+        true_clin_diary = downsample(true_clin_diary,downsample_rate)
+        
+    return true_clin_diary
