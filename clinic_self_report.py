@@ -9,10 +9,10 @@ from scipy.ndimage import median_filter
 from joblib import Parallel, delayed
 from realSim import get_mSF, simulator_base,downsample
 
-def drawResult_from_clinic_self_report(N=100000):
+def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3,.2,.1],figname='Fig2-self-report.tif'):
     #N = 100000
     #N = 1000
-    fn =f'clinicMonster_selfrep_v3with{N}.csv'
+    #fn =f'clinicMonster_selfrep_v3with{N}.csv'
 
     #fn = 'clinicMonster_selfRep_1FPmonthly.csv'
     #fn = 'clinicMonster_selfrep_v2with.csv'
@@ -22,7 +22,8 @@ def drawResult_from_clinic_self_report(N=100000):
     df_grouped['sens'] = df_grouped.index
     df_grouped['sens'] = df_grouped['sens'].astype('category')
 
-    pal = 'coolwarm'
+    #pal = 'coolwarm'
+    pal = 'Greys'
     plt.subplot(2,2,1)
     ax1=sns.boxenplot(data=df,x='sens',y='meanDrug',hue='sens',palette=pal)
     _lg = ax1.get_legend()
@@ -30,19 +31,19 @@ def drawResult_from_clinic_self_report(N=100000):
     
     #sns.violinplot(data=df,x='sens',y='meanDrug')
     #sns.scatterplot(data=df,x='sens',y='meanDrug')
-    plt.plot([0,1,2,3,4,5,6,7,8,9],df_grouped['meanDrug'],linestyle=':',color='r',marker='o')
+    plt.plot(np.arange(len(sLIST)),df_grouped['meanDrug'],linestyle=':',color='r',marker='o')
     plt.ylim(0,6)
     plt.xticks([])
     plt.xlabel('')
     plt.ylabel('Daily # meds per patient')
     plt.subplot(2,2,2)
-    ax=plt.gca()
-    ax.set(xscale="log", yscale="log")
-    ax2=sns.boxenplot(data=df,x='sens',y='meanSz',hue='sens',palette=pal, legend=[.1,.2,.3,.4,.5,.6,.7,.8,.9,1])
+    #ax=plt.gca()
+    #ax.set(xscale="log", yscale="log")
+    ax2=sns.boxenplot(data=df,x='sens',y='meanSz',hue='sens',palette=pal, legend=[np.sort(np.array(sLIST))])
     plt.legend(loc='center left', title='Sensitivity (SNR)',bbox_to_anchor=(1, 0.5))
     
     #sns.violinplot(data=df,x='sens',y='meanSz')
-    plt.plot([0,1,2,3,4,5,6,7,8,9],df_grouped['meanSz'],linestyle=':',color='r',marker='o')
+    plt.plot(np.arange(len(sLIST)),df_grouped['meanSz'],linestyle=':',color='r',marker='o')
     plt.ylim(0,15)
     plt.ylabel('Ave. sz./mo. per patient')
     plt.xlabel('')
@@ -56,7 +57,7 @@ def drawResult_from_clinic_self_report(N=100000):
     #ax = sns.boxenplot(data=df,x='sens',y='how_long')
     _lg = ax3.get_legend()
     _lg.remove()
-    plt.plot([0,1,2,3,4,5,6,7,8,9],df_grouped['how_long'],linestyle=':',color='r',marker='o')
+    plt.plot(np.arange(len(sLIST)),df_grouped['how_long'],linestyle=':',color='r',marker='o')
     #plt.title('Sensitivity vs. how long until med stability')
     #plt.xlabel('')
     #plt.xticks([])
@@ -87,7 +88,7 @@ def drawResult_from_clinic_self_report(N=100000):
     plt.xlabel('ave. sz./mo. per patient')
     # Print the result
     print(df_grouped)
-    plt.savefig('Fig2-self-report.tif',bbox_inches='tight',dpi=300)
+    plt.savefig(figname,bbox_inches='tight',dpi=300)
     plt.show()
     
     plt.figure(figsize=(4,4))
@@ -251,11 +252,10 @@ def sim1clinicSR(sens,FAR,clinic_interval,L,inflater,doDISCOUNT=True,findSteady=
     successLIST = [0,.46,.28,.24,.15,0.14,0.14,0]
     #successLIST = [0,.72,.18,.07,.02,0.01,0.01,0]
     
-    # First make 1 patient true_e and true_c
+    # First make 1 patient true_c
     sampRATE = 1
     howmanydays = L*clinic_interval
-    true_clin_diary = make_diaries_CLIN(sampRATE,howmanydays,downsample_rate=sampRATE*clinic_interval,
-                                     obs_sensitivity=sens, obs_FAR=FAR)
+    true_clin_diary = make_diaries_CLIN(sampRATE,howmanydays,downsample_rate=sampRATE*clinic_interval)
 
     X = true_clin_diary.copy().astype('int')
     sensorXdrugged = X.copy()
