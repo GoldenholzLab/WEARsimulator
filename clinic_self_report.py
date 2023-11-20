@@ -9,7 +9,7 @@ from scipy.ndimage import median_filter
 from joblib import Parallel, delayed
 from realSim import get_mSF, simulator_base,downsample
 
-def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3,.2,.1],figname='Fig2-self-report.tif'):
+def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3,.2,.1],figname='Fig2-self-report.tif',doColor=True):
     #N = 100000
     #N = 1000
     #fn =f'clinicMonster_selfrep_v3with{N}.csv'
@@ -22,8 +22,12 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     df_grouped['sens'] = df_grouped.index
     df_grouped['sens'] = df_grouped['sens'].astype('category')
 
-    #pal = 'coolwarm'
-    pal = 'Greys'
+    if doColor==True:
+        pal = 'coolwarm'
+        dotc = 'red'
+    else:
+        pal = 'Greys'
+        dotc = 'black'
     plt.subplot(2,2,1)
     ax1=sns.boxenplot(data=df,x='sens',y='meanDrug',hue='sens',palette=pal)
     _lg = ax1.get_legend()
@@ -31,7 +35,7 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     
     #sns.violinplot(data=df,x='sens',y='meanDrug')
     #sns.scatterplot(data=df,x='sens',y='meanDrug')
-    plt.plot(np.arange(len(sLIST)),df_grouped['meanDrug'],linestyle=':',color='r',marker='o')
+    plt.plot(np.arange(len(sLIST)),df_grouped['meanDrug'],linestyle=':',color=dotc,marker='o')
     plt.ylim(0,6)
     plt.xticks([])
     plt.xlabel('')
@@ -43,7 +47,7 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     plt.legend(loc='center left', title='Sensitivity (SNR)',bbox_to_anchor=(1, 0.5))
     
     #sns.violinplot(data=df,x='sens',y='meanSz')
-    plt.plot(np.arange(len(sLIST)),df_grouped['meanSz'],linestyle=':',color='r',marker='o')
+    plt.plot(np.arange(len(sLIST)),df_grouped['meanSz'],linestyle=':',color=dotc,marker='o')
     plt.ylim(0,15)
     plt.ylabel('Ave. sz./mo. per patient')
     plt.xlabel('')
@@ -57,7 +61,7 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     #ax = sns.boxenplot(data=df,x='sens',y='how_long')
     _lg = ax3.get_legend()
     _lg.remove()
-    plt.plot(np.arange(len(sLIST)),df_grouped['how_long'],linestyle=':',color='r',marker='o')
+    plt.plot(np.arange(len(sLIST)),df_grouped['how_long'],linestyle=':',color=dotc,marker='o')
     #plt.title('Sensitivity vs. how long until med stability')
     #plt.xlabel('')
     #plt.xticks([])
@@ -68,7 +72,7 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     # Group the dataframe by sens and compute the mean of meanSz
 
     ax4 = sns.scatterplot(data=df_grouped,size='sens',hue='sens',y='meanDrug',x='meanSz',
-                        palette=pal)
+                        palette=pal,edgecolors='black')
     _lg = ax4.get_legend()
     _lg.remove()
     # Use curve_fit to fit the function to your data
@@ -77,9 +81,11 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     some_x = np.array(df_grouped.meanSz)[::-1]
     #popt, pcov = curve_fit(exp_curve_func, xdata=some_x[::4], ydata=some_y[::4])
     #fit_x = np.linspace(np.min(df_grouped.meanDrug),1.9, 30)
-    model = np.poly1d(np.polyfit(some_x, some_y, 2))
-    polyline = np.linspace(np.min(df_grouped.meanSz),14, 30)
-    plt.plot(polyline, model(polyline),'r:')
+    #model = np.poly1d(np.polyfit(some_x, some_y, 2))
+    #polyline = np.linspace(np.min(df_grouped.meanSz),np.max(df_grouped.meanSz), 30)
+    #plt.plot(polyline, model(polyline),'sr:')
+    plt.plot(some_x,some_y,':',color=dotc,alpha=0.5)
+    plt.grid(visible=True)
     #plt.plot(fit_x,exp_curve_func(fit_x, *popt), 'r:')
     #plt.legend(loc='center left', title='Sensitivity',bbox_to_anchor=(1, 0.5))
     plt.xlim(0,15)
@@ -93,7 +99,7 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     
     plt.figure(figsize=(4,4))
     sns.scatterplot(data=df_grouped,size='sens',hue='sens',y='meanDrug',x='meanSz',
-                        palette=pal)
+                        palette=pal,edgecolors='black')
     plt.legend(loc='center left', title='Sensitivity (SNR)',bbox_to_anchor=(1, 0.5))
     
     # Use curve_fit to fit the function to your data
@@ -102,10 +108,12 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     some_x = np.array(df_grouped.meanSz)[::-1]
     #popt, pcov = curve_fit(exp_curve_func, xdata=some_x[::4], ydata=some_y[::4])
     #fit_x = np.linspace(np.min(df_grouped.meanDrug),1.9, 30)
-    model = np.poly1d(np.polyfit(some_x, some_y, 2))
-    polyline = np.linspace(np.min(df_grouped.meanSz),14, 30)
-    plt.plot(polyline, model(polyline),'r:')
+    #model = np.poly1d(np.polyfit(some_x, some_y, 2))
+    #polyline = np.linspace(np.min(df_grouped.meanSz),np.max(df_grouped.meanSz), 30)
+    #plt.plot(polyline, model(polyline),'r:')
     #plt.plot(fit_x,exp_curve_func(fit_x, *popt), 'r:')
+    plt.plot(some_x,some_y,'r:',alpha=0.5)
+    plt.grid(visible=True)
     #plt.legend(loc='center left', title='Sensitivity',bbox_to_anchor=(1, 0.5))
     plt.xlim(0,15)
     plt.ylim(0,4)
@@ -116,7 +124,7 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     ax = plt.gca()
     ax.set(xscale="log", yscale="log")
     ax = sns.scatterplot(data=df_grouped,size='sens',hue='sens',x='sens',y='meanSz',
-                        palette=pal)
+                        palette=pal,edgecolors='black')
     some_y = np.array(df_grouped.meanSz)[::-1]
     some_x = np.array(df_grouped.sens)[::-1]
     #model = np.poly1d(np.polyfit(some_x, some_y, 3))
@@ -124,9 +132,9 @@ def drawResult_from_clinic_self_report(fn,N=100000,sLIST=[1,.9,.8,.7,.6,.5,.4,.3
     #ax.set_ylim(bottom=0)
     #plt.plot(np.log10(some_x),np.log10(some_y),'r:')
     plt.plot(some_x,some_y,'r:')
-    #plt.ylim(0,3)
+    plt.ylim(1,8)
     #plt.xlim(0,1)
-    plt.grid(visible=True)
+    plt.grid(visible=True,which='both')
     plt.legend(loc='center left', title='Sensitivity (SNR)',bbox_to_anchor=(1, 0.5))
     plt.ylabel('Mean sz/month per patient')
     plt.xlabel('Sensitivity (SNR)')
